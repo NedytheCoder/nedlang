@@ -2,8 +2,9 @@
 
 import Link from "next/link"
 import { motion } from "framer-motion"
-import { FaBolt, FaGoogle, FaGithub } from "react-icons/fa"
+import { FaGoogle, FaGithub } from "react-icons/fa"
 import { useTranslation } from "../../../i18n/LanguageProvider"
+import { GiEarthAfricaEurope } from "react-icons/gi"
 
 export default function LoginPage() {
   const { t } = useTranslation()
@@ -19,7 +20,7 @@ export default function LoginPage() {
         <div className="text-center mb-8">
           <Link href="/" className="inline-flex items-center gap-2 group">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
-              <FaBolt className="w-5 h-5 text-white" />
+              <GiEarthAfricaEurope className="w-5 h-5 text-white" />
             </div>
             <span className="text-slate-900 dark:text-white font-bold text-xl tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
               NedLang
