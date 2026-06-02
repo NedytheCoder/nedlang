@@ -1,0 +1,66 @@
+@import "tailwindcss";
+
+/* ── Class-based dark mode for Tailwind v4 ── */
+@variant dark (&:where(.dark, .dark *));
+
+/* ── Design tokens — light mode defaults, dark mode overrides ── */
+:root {
+  --background: #ffffff;
+  --foreground: #0f172a;
+}
+
+.dark {
+  --background: #020817;
+  --foreground: #f9fafb;
+}
+
+html,
+body {
+  font-family: 'Poppins', sans-serif !important;
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+/* ── Custom keyframe animations ── */
+
+@keyframes nedlang-float {
+  0%, 100% { transform: translateY(0px); }
+  50%       { transform: translateY(-14px); }
+}
+
+@keyframes nedlang-fade-in-up {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes nedlang-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+
+@keyframes nedlang-pulse-glow {
+  0%, 100% { box-shadow: 0 0 6px rgba(99, 102, 241, 0.3); }
+  50%       { box-shadow: 0 0 22px rgba(99, 102, 241, 0.7); }
+}
+
+/* ── Utility classes for the animations ── */
+
+.nedlang-fade-in-up {
+  animation: nedlang-fade-in-up 0.8s ease-out both;
+}
+
+.nedlang-shimmer-bar {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.25) 50%,
+    transparent 100%
+  );
+  animation: nedlang-shimmer 2.4s linear infinite;
+}
+
+.nedlang-pulse-glow {
+  animation: nedlang-pulse-glow 2s ease-in-out infinite;
+}
