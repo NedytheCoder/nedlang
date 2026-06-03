@@ -57,6 +57,17 @@ _HOBBIES: list[str] = [
     "Photography",
 ]
 
+_MOTIVATIONS: list[str] = [
+    "Career growth",
+    "Travel",
+    "Relocating abroad",
+    "University studies",
+    "Business communication",
+    "Watching movies without subtitles",
+    "Speaking with family",
+    "Personal interest",
+]
+
 
 # ─── Connection ───────────────────────────────────────────────────────────────
 
@@ -124,6 +135,16 @@ def seed_hobbies(conn: sqlite3.Connection) -> None:
     print(f"[db] Hobbies seeded ({len(_HOBBIES)} rows)")
 
 
+def seed_motivations(conn: sqlite3.Connection) -> None:
+    """
+    Insert the canonical motivation list.
+    Uses INSERT OR IGNORE so re-running is safe.
+    """
+    sql = "INSERT OR IGNORE INTO motivations (label) VALUES (?)"
+    conn.executemany(sql, [(m,) for m in _MOTIVATIONS])
+    print(f"[db] Motivations seeded ({len(_MOTIVATIONS)} rows)")
+
+
 # ─── Initialization ───────────────────────────────────────────────────────────
 
 def initialize_database() -> None:
@@ -144,7 +165,8 @@ def initialize_database() -> None:
         create_tables(conn)          # step 2 + 3
         seed_languages(conn)         # step 4
         seed_hobbies(conn)           # step 5
-        conn.commit()                # step 6
+        seed_motivations(conn)       # step 6
+        conn.commit()                # step 7
         print("[db] Initialization complete.")
     except Exception as exc:
         conn.rollback()

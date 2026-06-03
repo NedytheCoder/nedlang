@@ -1,21 +1,23 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useTranslation } from "../../../../i18n/LanguageProvider"
 import { StepProps } from "./types"
-
-const PRESET_HOBBIES = [
-  "Football", "Gaming", "Anime", "Cooking", "Fitness",
-  "Reading", "Technology", "Music", "Photography",
-  "Business", "Travel", "Movies",
-]
 
 const MAX = 3
 
 export default function StepInterests({ data, onChange, errors }: StepProps) {
   const { t } = useTranslation()
   const [query, setQuery] = useState("")
+  const [presetHobbies, setPresetHobbies] = useState<string[]>([])
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
+  useEffect(() => {
+    fetch(`${backendUrl}/hobbies`)
+      .then((r) => r.json())
+      .then(setPresetHobbies)
+  }, [])
 
   const selected = data.top_hobbies
   const canAdd = selected.length < MAX
@@ -36,8 +38,8 @@ export default function StepInterests({ data, onChange, errors }: StepProps) {
     setQuery("")
   }
 
-  const filteredPresets = PRESET_HOBBIES.filter(
-    (h) => h.toLowerCase().includes(query.toLowerCase()) && !PRESET_HOBBIES.includes(query)
+  const filteredPresets = presetHobbies.filter(
+    (h) => h.toLowerCase().includes(query.toLowerCase()) && !presetHobbies.includes(query)
   )
 
   const showAddButton =

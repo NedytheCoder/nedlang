@@ -62,6 +62,15 @@ _TABLES: list[str] = [
     )
     """,
 
+    # ── motivations ───────────────────────────────────────────────────────────
+    """
+    CREATE TABLE IF NOT EXISTS motivations (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        label     TEXT UNIQUE NOT NULL,
+        is_active INTEGER DEFAULT 1
+    )
+    """,
+
     # ── user_hobbies ──────────────────────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS user_hobbies (
@@ -219,6 +228,7 @@ _DROP_ORDER: list[str] = [
     "assessments",
     "user_hobbies",
     "hobbies",
+    "motivations",
     "users",
     "languages",
 ]

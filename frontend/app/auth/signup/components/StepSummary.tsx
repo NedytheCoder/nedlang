@@ -1,8 +1,18 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { useTranslation } from "../../../../i18n/LanguageProvider"
 import { OnboardingData } from "./types"
-import { getLangByCode } from "./languages"
+
+const FLAG_MAP: Record<string, string> = {
+  ar: "🇸🇦", zh: "🇨🇳", nl: "🇳🇱", en: "🇬🇧",
+  fr: "🇫🇷", de: "🇩🇪", hi: "🇮🇳", it: "🇮🇹",
+  ja: "🇯🇵", ko: "🇰🇷", pt: "🇵🇹", ru: "🇷🇺",
+  es: "🇪🇸", tr: "🇹🇷", vi: "🇻🇳", pl: "🇵🇱",
+  sv: "🇸🇪", uk: "🇺🇦", id: "🇮🇩", ms: "🇲🇾",
+}
+
+interface Language { code: string; name: string; nativeName: string; flag: string }
 
 const STYLE_ICONS: Record<string, string> = {
   reading: "📖",
@@ -31,9 +41,20 @@ function SummaryRow({ label, children }: { label: string; children: React.ReactN
 
 export default function StepSummary({ data }: { data: OnboardingData }) {
   const { t } = useTranslation()
+  const [languages, setLanguages] = useState<Language[]>([])
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-  const nativeLang = getLangByCode(data.native_language)
-  const targetLang = getLangByCode(data.target_language)
+  useEffect(() => {
+    fetch(`${backendUrl}/languages`)
+      .then((r) => r.json())
+      .then((rows: { code: string; name: string; nativeName: string }[]) =>
+        setLanguages(rows.map((r) => ({ ...r, flag: FLAG_MAP[r.code] ?? "🌐" })))
+      )
+  }, [])
+
+  const getLang = (code: string) => languages.find((l) => l.code === code)
+  const nativeLang = getLang(data.native_language)
+  const targetLang = getLang(data.target_language)
   const dailyGoalKey = `onb_goal_${data.daily_goal_minutes === 60 ? "60" : data.daily_goal_minutes}`
 
   return (

@@ -25,7 +25,18 @@ function validateStep(
     if (!data.first_name || data.first_name.trim().length < 2) e.first_name = t("onb_val_name_min")
     if (!data.last_name || data.last_name.trim().length < 2) e.last_name = t("onb_val_name_min")
     if (!data.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) e.email = t("onb_val_email")
-    if (!data.password || data.password.length < 8) e.password = t("onb_val_pw_min")
+    if (!data.password || data.password.length < 8) {
+      e.password = t("onb_val_pw_min")
+    } else if (new TextEncoder().encode(data.password).length > 72) {
+      e.password = t("onb_val_pw_too_long")
+    } else {
+      let strength = 0
+      if (data.password.length >= 8) strength++
+      if (/[A-Z]/.test(data.password)) strength++
+      if (/[0-9]/.test(data.password)) strength++
+      if (/[^A-Za-z0-9]/.test(data.password)) strength++
+      if (strength < 3) e.password = t("onb_val_pw_strength")
+    }
     if (!data.confirm_password || data.password !== data.confirm_password) e.confirm_password = t("onb_val_pw_match")
   }
 
@@ -65,6 +76,7 @@ export default function SignupPage() {
   const [dir, setDir] = useState(1)
   const [data, setData] = useState<OnboardingData>(INITIAL_DATA)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
   const handleChange = (updates: Partial<OnboardingData>) => {
     setData((prev) => ({ ...prev, ...updates }))
@@ -92,26 +104,41 @@ export default function SignupPage() {
     setErrors({})
   }
 
-  const handleSubmit = () => {
-    const profile = {
-      account: {
-        first_name: data.first_name,
-        last_name: data.last_name,
-        email: data.email,
-      },
-      language_profile: {
-        native_language: data.native_language,
-        target_language: data.target_language,
-      },
-      personalization: {
-        learning_goal: data.learning_goal,
-        top_hobbies: data.top_hobbies,
-        preferred_learning_style: data.preferred_learning_style,
-        daily_goal_minutes: data.daily_goal_minutes,
-      },
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState("")
+
+  const handleSubmit = async () => {
+    setSubmitting(true)
+    setSubmitError("")
+    try {
+      const res = await fetch(`${backendUrl}/user/registration`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: data.first_name,
+          last_name: data.last_name,
+          email: data.email,
+          password: data.password,
+          native_language: data.native_language,
+          target_language: data.target_language,
+          learning_goal: data.learning_goal,
+          top_hobbies: data.top_hobbies,
+          preferred_learning_style: data.preferred_learning_style,
+          daily_goal_minutes: data.daily_goal_minutes,
+        }),
+      })
+      const body = await res.json()
+      if (!res.ok) {
+        setSubmitError(body.detail ?? "Registration failed. Please try again.")
+        return
+      }
+      // TODO: redirect to dashboard or login
+      console.log("Registered:", body)
+    } catch {
+      setSubmitError("Could not reach the server. Please try again.")
+    } finally {
+      setSubmitting(false)
     }
-    console.log("🎓 NedLang — Onboarding Profile:", profile)
-    console.log("📊 Full Data:", data)
   }
 
   const isFinal = step === TOTAL_STEPS - 1
@@ -172,12 +199,17 @@ export default function SignupPage() {
             </AnimatePresence>
           </div>
 
+          {submitError && (
+            <p className="mt-4 text-sm text-red-500 text-center">{submitError}</p>
+          )}
+
           <div className={`flex mt-8 gap-3 ${step > 0 ? "justify-between" : "justify-end"}`}>
             {step > 0 && (
               <motion.button
                 type="button"
                 onClick={handleBack}
-                className="px-5 py-2.5 text-sm font-medium text-slate-600 dark:text-gray-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all"
+                disabled={submitting}
+                className="px-5 py-2.5 text-sm font-medium text-slate-600 dark:text-gray-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all disabled:opacity-50"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
               >
@@ -187,11 +219,12 @@ export default function SignupPage() {
             <motion.button
               type="button"
               onClick={isFinal ? handleSubmit : handleNext}
-              className="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 rounded-xl shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all"
+              disabled={submitting}
+              className="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 rounded-xl shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all disabled:opacity-60"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              {isFinal ? t("onb_summary_cta") : `${t("onb_next")} →`}
+              {isFinal ? (submitting ? "Creating account…" : t("onb_summary_cta")) : `${t("onb_next")} →`}
             </motion.button>
           </div>
         </div>

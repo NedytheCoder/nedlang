@@ -1,10 +1,26 @@
 "use client"
 
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useTranslation } from "../../../../i18n/LanguageProvider"
 import { StepProps } from "./types"
-import { LANGUAGES, getLangByCode } from "./languages"
+
+interface Language {
+  code: string
+  name: string
+  nativeName: string
+  flag: string
+}
+
+const FLAG_MAP: Record<string, string> = {
+  ar: "🇸🇦", zh: "🇨🇳", nl: "🇳🇱", en: "🇬🇧",
+  fr: "🇫🇷", de: "🇩🇪", hi: "🇮🇳", it: "🇮🇹",
+  ja: "🇯🇵", ko: "🇰🇷", pt: "🇵🇹", ru: "🇷🇺",
+  es: "🇪🇸", tr: "🇹🇷", vi: "🇻🇳", pl: "🇵🇱",
+  sv: "🇸🇪", uk: "🇺🇦", id: "🇮🇩", ms: "🇲🇾",
+}
+
+const DEFAULT_FLAG = "🌐"
 
 interface ComboboxProps {
   value: string
@@ -14,21 +30,23 @@ interface ComboboxProps {
   excludeCode?: string
   label: string
   description: string
+  languages: Language[]
+  loading: boolean
 }
 
-function LanguageCombobox({ value, onChange, placeholder, error, excludeCode, label, description }: ComboboxProps) {
+function LanguageCombobox({ value, onChange, placeholder, error, excludeCode, label, description, languages, loading }: ComboboxProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const filtered = LANGUAGES.filter(
+  const filtered = languages.filter(
     (l) =>
       l.code !== excludeCode &&
       (l.name.toLowerCase().includes(query.toLowerCase()) ||
         l.nativeName.toLowerCase().includes(query.toLowerCase()))
   )
 
-  const selected = getLangByCode(value)
+  const selected = languages.find((l) => l.code === value)
 
   const handleSelect = (code: string) => {
     onChange(code)
@@ -47,14 +65,17 @@ function LanguageCombobox({ value, onChange, placeholder, error, excludeCode, la
 
         <button
           type="button"
+          disabled={loading}
           onClick={() => { setOpen(true); setTimeout(() => inputRef.current?.focus(), 50) }}
           className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm rounded-xl border transition-all text-left ${
             error
               ? "border-red-400 dark:border-red-500"
               : "border-slate-200 dark:border-white/10 hover:border-slate-300 dark:hover:border-white/20"
-          } bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white`}
+          } bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white disabled:opacity-60`}
         >
-          {selected ? (
+          {loading ? (
+            <span className="text-slate-400 dark:text-gray-500 flex-1">Loading languages…</span>
+          ) : selected ? (
             <>
               <span className="text-base">{selected.flag}</span>
               <span className="flex-1">{selected.name}</span>
@@ -124,9 +145,24 @@ const PREVIEW_PAIRS = [
 
 export default function StepLanguage({ data, onChange, errors }: StepProps) {
   const { t } = useTranslation()
+  const [languages, setLanguages] = useState<Language[]>([])
+  const [loading, setLoading] = useState(true)
+  const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-  const nativeLang = getLangByCode(data.native_language)
-  const targetLang = getLangByCode(data.target_language)
+
+  useEffect(() => {
+    fetch(`${backendUrl}/languages`)
+      .then((r) => r.json())
+      .then((rows: { code: string; name: string; nativeName: string }[]) => {
+        setLanguages(rows.map((r) => ({ ...r, flag: FLAG_MAP[r.code] ?? DEFAULT_FLAG })))
+      })
+      .finally(() => setLoading(false))
+  }, [])
+
+  const getLang = (code: string) => languages.find((l) => l.code === code)
+
+  const nativeLang = getLang(data.native_language)
+  const targetLang = getLang(data.target_language)
 
   return (
     <div className="space-y-6">
@@ -143,6 +179,8 @@ export default function StepLanguage({ data, onChange, errors }: StepProps) {
         excludeCode={data.target_language}
         label={t("onb_native_label")}
         description={t("onb_native_desc")}
+        languages={languages}
+        loading={loading}
       />
 
       <LanguageCombobox
@@ -153,6 +191,8 @@ export default function StepLanguage({ data, onChange, errors }: StepProps) {
         excludeCode={data.native_language}
         label={t("onb_target_label")}
         description={t("onb_target_desc")}
+        languages={languages}
+        loading={loading}
       />
 
       {nativeLang && targetLang ? (
@@ -179,9 +219,10 @@ export default function StepLanguage({ data, onChange, errors }: StepProps) {
         <div className="border border-dashed border-slate-200 dark:border-slate-700 rounded-xl p-4">
           <p className="text-xs text-slate-400 dark:text-gray-500 text-center mb-3">{t("onb_lang_preview_label")}</p>
           <div className="space-y-1.5">
-            {PREVIEW_PAIRS.map(({ native, target }) => {
-              const n = getLangByCode(native)!
-              const tg = getLangByCode(target)!
+            {!loading && PREVIEW_PAIRS.map(({ native, target }) => {
+              const n = getLang(native)
+              const tg = getLang(target)
+              if (!n || !tg) return null
               return (
                 <p key={`${native}-${target}`} className="text-xs text-center text-slate-400 dark:text-gray-500">
                   {n.flag} {n.name} → {tg.flag} {tg.name}
