@@ -14,6 +14,7 @@ export interface OnboardingData {
 
   // Step 3 – Motivation
   learning_goal: string
+  selected_motivations: string[]
 
   // Step 4 – Interests
   top_hobbies: string[]
@@ -32,6 +33,7 @@ export const INITIAL_DATA: OnboardingData = {
   native_language: "",
   target_language: "",
   learning_goal: "",
+  selected_motivations: [],
   top_hobbies: [],
   preferred_learning_style: "",
   daily_goal_minutes: null,

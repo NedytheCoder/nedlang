@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "../../../../i18n/LanguageProvider"
 import { OnboardingData } from "./types"
+import { MOTIVATION_KEY_MAP } from "./motivationUtils"
 
 const FLAG_MAP: Record<string, string> = {
   ar: "🇸🇦", zh: "🇨🇳", nl: "🇳🇱", en: "🇬🇧",
@@ -40,17 +41,17 @@ function SummaryRow({ label, children }: { label: string; children: React.ReactN
 }
 
 export default function StepSummary({ data }: { data: OnboardingData }) {
-  const { t } = useTranslation()
+  const { t, lang } = useTranslation()
   const [languages, setLanguages] = useState<Language[]>([])
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
   useEffect(() => {
-    fetch(`${backendUrl}/languages`)
+    fetch(`${backendUrl}/languages?ui_lang=${lang}`)
       .then((r) => r.json())
-      .then((rows: { code: string; name: string; nativeName: string }[]) =>
-        setLanguages(rows.map((r) => ({ ...r, flag: FLAG_MAP[r.code] ?? "🌐" })))
+      .then((rows: { code: string; name: string; nativeName: string; localizedName: string }[]) =>
+        setLanguages(rows.map((r) => ({ ...r, name: r.localizedName, flag: FLAG_MAP[r.code] ?? "🌐" })))
       )
-  }, [])
+  }, [lang])
 
   const getLang = (code: string) => languages.find((l) => l.code === code)
   const nativeLang = getLang(data.native_language)
@@ -87,12 +88,24 @@ export default function StepSummary({ data }: { data: OnboardingData }) {
           </p>
         </SummaryRow>
 
+        {data.selected_motivations.length > 0 && (
+          <SummaryRow label={t("onb_summary_motivations")}>
+            <div className="flex flex-wrap gap-1.5">
+              {data.selected_motivations.map((m) => (
+                <span key={m} className="px-2.5 py-1 text-xs bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 rounded-full border border-violet-100 dark:border-violet-500/20 font-medium">
+                  {t(MOTIVATION_KEY_MAP[m] ?? m)}
+                </span>
+              ))}
+            </div>
+          </SummaryRow>
+        )}
+
         <SummaryRow label={t("onb_summary_hobbies")}>
           <div className="flex flex-wrap gap-1.5">
             {data.top_hobbies.length > 0
               ? data.top_hobbies.map((h) => (
                   <span key={h} className="px-2.5 py-1 text-xs bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 rounded-full border border-indigo-100 dark:border-indigo-500/20 font-medium">
-                    {h}
+                    {t(`hobby_${h.toLowerCase()}`)}
                   </span>
                 ))
               : <span className="text-sm text-slate-400">—</span>}

@@ -1,11 +1,12 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { useTranslation } from "../../i18n/LanguageProvider"
 import { getFramework, FRAMEWORK_DATA } from "../components/reception/frameworkUtils"
-import { mockReceptionUser } from "../components/reception/receptionMockData"
+import { ReceptionUser } from "../components/reception/receptionMockData"
 import WelcomeHero from "../components/reception/WelcomeHero"
 import FrameworkCard from "../components/reception/FrameworkCard"
 import LevelSelection, { StartMode } from "../components/reception/LevelSelection"
@@ -13,12 +14,56 @@ import WhatsNext from "../components/reception/WhatsNext"
 import PersonalizationProfile from "../components/reception/PersonalizationProfile"
 import { GiEarthAfricaEurope } from "react-icons/gi"
 
+const FLAG_MAP: Record<string, string> = {
+  ar: "🇸🇦", zh: "🇨🇳", nl: "🇳🇱", en: "🇬🇧",
+  fr: "🇫🇷", de: "🇩🇪", hi: "🇮🇳", it: "🇮🇹",
+  ja: "🇯🇵", ko: "🇰🇷", pt: "🇵🇹", ru: "🇷🇺",
+  es: "🇪🇸", tr: "🇹🇷", vi: "🇻🇳", pl: "🇵🇱",
+}
+
+const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
 export default function ReceptionPage() {
-  const { t } = useTranslation()
+  const { t, lang } = useTranslation()
+  const router = useRouter()
   const [mode, setMode] = useState<StartMode>("placement")
   const [selectedLevel, setSelectedLevel] = useState<string | null>(null)
+  const [user, setUser] = useState<ReceptionUser | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const user = mockReceptionUser
+  useEffect(() => {
+    const userId = localStorage.getItem("nedlang_user_id")
+    const uiLang = localStorage.getItem("fc_ui_lang") || "en"
+    if (!userId) {
+      router.replace("/auth/signup")
+      return
+    }
+    fetch(`${BACKEND_URL}/user/profile/${userId}?ui_lang=${uiLang}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Profile not found")
+        return r.json()
+      })
+      .then((data) => {
+        setUser({
+          ...data,
+          nativeLanguage: { ...data.nativeLanguage, name: data.nativeLanguage.localizedName ?? data.nativeLanguage.name, flag: FLAG_MAP[data.nativeLanguage.code] ?? "🌐" },
+          targetLanguage: { ...data.targetLanguage, name: data.targetLanguage.localizedName ?? data.targetLanguage.name, flag: FLAG_MAP[data.targetLanguage.code] ?? "🌐" },
+        })
+      })
+      .catch(() => router.replace("/auth/signup"))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  if (!user) return null
+
   const frameworkId = getFramework(user.targetLanguage.code)
   const framework = FRAMEWORK_DATA[frameworkId]
 
@@ -34,7 +79,7 @@ export default function ReceptionPage() {
 
       {/* Minimal nav */}
       <header className="relative z-10 border-b border-slate-200 dark:border-white/8 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md">
-        <div className="max-w-2xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 flex items-center justify-between h-14">
           <Link href="/" className="flex items-center gap-2 group">
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-sm">
               <GiEarthAfricaEurope className="w-3.5 h-3.5 text-white" />
@@ -51,7 +96,7 @@ export default function ReceptionPage() {
       </header>
 
       {/* Main content */}
-      <main className="relative z-10 max-w-2xl mx-auto px-4 sm:px-6 py-8 space-y-6">
+      <main className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 py-8 space-y-6">
 
         {/* 1 — Welcome hero */}
         <WelcomeHero user={user} />
@@ -96,6 +141,7 @@ export default function ReceptionPage() {
             <motion.button
               whileHover={{ scale: 1.015 }}
               whileTap={{ scale: 0.985 }}
+              onClick={() => router.push("/reception/reading")}
               className="w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-bold rounded-xl shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/35 transition-all text-base"
             >
               🎯 {t("rec_cta_primary")}

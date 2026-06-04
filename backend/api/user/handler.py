@@ -1,6 +1,10 @@
+import json
 import uuid
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from api.lang_map import localize
+from api.hobby_map import localize_hobby
+from api.motivation_map import localize_motivation
 import bcrypt
 from pydantic import BaseModel
 
@@ -27,7 +31,8 @@ class RegistrationRequest(BaseModel):
     native_language: str        # ISO 639-1 code e.g. "en"
     target_language: str        # ISO 639-1 code e.g. "fr"
     learning_goal: str
-    top_hobbies: list[str]      # exactly 3 hobby names
+    selected_motivations: list[str] = []   # canonical English chip labels
+    top_hobbies: list[str]                 # exactly 3 hobby names
     preferred_learning_style: str
     daily_goal_minutes: int
 
@@ -89,6 +94,77 @@ def user():
     return {"message": "Hello from User API"}
 
 
+@router.get("/profile/{user_id}")
+def get_profile(user_id: str, ui_lang: str = Query(default="en")):
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT u.first_name, u.learning_goal, u.selected_motivations,
+                   u.preferred_learning_style, u.daily_goal_minutes,
+                   nl.code AS native_code, nl.name AS native_name,
+                   tl.code AS target_code, tl.name AS target_name
+            FROM users u
+            JOIN languages nl ON nl.id = u.native_language_id
+            JOIN languages tl ON tl.id = u.target_language_id
+            WHERE u.id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+
+        if row is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        hobbies = [
+            localize_hobby(r["name"], ui_lang)
+            for r in conn.execute(
+                """
+                SELECT h.name FROM hobbies h
+                JOIN user_hobbies uh ON uh.hobby_id = h.id
+                WHERE uh.user_id = ?
+                """,
+                (user_id,),
+            ).fetchall()
+        ]
+
+        raw_motivations = json.loads(row["selected_motivations"]) if row["selected_motivations"] else []
+        selected_motivations = [localize_motivation(m, ui_lang) for m in raw_motivations]
+
+        return {
+            "firstName": row["first_name"],
+            "nativeLanguage": {
+                "code": row["native_code"],
+                "name": row["native_name"],
+                "localizedName": localize(row["native_code"], ui_lang, row["native_name"]),
+            },
+            "targetLanguage": {
+                "code": row["target_code"],
+                "name": row["target_name"],
+                "localizedName": localize(row["target_code"], ui_lang, row["target_name"]),
+            },
+            "learningGoal": row["learning_goal"],
+            "selectedMotivations": selected_motivations,
+            "hobbies": hobbies,
+            "learningStyle": row["preferred_learning_style"],
+            "dailyGoalMinutes": row["daily_goal_minutes"],
+        }
+
+    finally:
+        conn.close()
+
+
+@router.get("/check-email")
+def check_email(email: str):
+    conn = get_connection()
+    try:
+        exists = conn.execute(
+            "SELECT 1 FROM users WHERE email = ?", (email.lower(),)
+        ).fetchone() is not None
+        return {"available": not exists}
+    finally:
+        conn.close()
+
+
 @router.post("/registration", status_code=201)
 def register(req: RegistrationRequest):
     conn = get_connection()
@@ -112,15 +188,17 @@ def register(req: RegistrationRequest):
             INSERT INTO users (
                 id, email, username, first_name, last_name, password_hash,
                 native_language_id, target_language_id,
-                learning_goal, preferred_learning_style, daily_goal_minutes,
+                learning_goal, selected_motivations,
+                preferred_learning_style, daily_goal_minutes,
                 framework
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id, req.email, username,
                 req.first_name, req.last_name, pw_hash,
                 native_id, target_id,
-                req.learning_goal, req.preferred_learning_style, req.daily_goal_minutes,
+                req.learning_goal, json.dumps(req.selected_motivations),
+                req.preferred_learning_style, req.daily_goal_minutes,
                 framework,
             ),
         )

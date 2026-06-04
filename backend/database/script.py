@@ -30,15 +30,15 @@ _LANGUAGES: list[tuple[str, str, str]] = [
     ("en", "English",    "English"),
     ("fr", "French",     "Français"),
     ("de", "German",     "Deutsch"),
-    ("es", "Spanish",    "Español"),
-    ("pt", "Portuguese", "Português"),
-    ("it", "Italian",    "Italiano"),
-    ("nl", "Dutch",      "Nederlands"),
     ("zh", "Chinese",    "中文"),
-    ("ja", "Japanese",   "日本語"),
-    ("ko", "Korean",     "한국어"),
-    ("ar", "Arabic",     "العربية"),
-    ("ru", "Russian",    "Русский"),
+    # ("es", "Spanish",    "Español"),
+    # ("pt", "Portuguese", "Português"),
+    # ("it", "Italian",    "Italiano"),
+    # ("nl", "Dutch",      "Nederlands"),
+    # ("ja", "Japanese",   "日本語"),
+    # ("ko", "Korean",     "한국어"),
+    # ("ar", "Arabic",     "العربية"),
+    # ("ru", "Russian",    "Русский"),
 ]
 
 _HOBBIES: list[str] = [

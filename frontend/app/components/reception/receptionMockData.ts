@@ -6,6 +6,7 @@ export interface ReceptionUser {
   nativeLanguage: { code: string; name: string; flag: string }
   targetLanguage: { code: string; name: string; flag: string }
   learningGoal: string
+  selectedMotivations: string[]
   hobbies: string[]
   learningStyle: string
   dailyGoalMinutes: number
@@ -16,6 +17,7 @@ export const mockReceptionUser: ReceptionUser = {
   nativeLanguage: { code: "en", name: "English", flag: "🇬🇧" },
   targetLanguage: { code: "fr", name: "French", flag: "🇫🇷" },
   learningGoal: "Reach B2 French for relocation to Paris",
+  selectedMotivations: ["Travel", "Relocating abroad"],
   hobbies: ["Technology", "Cooking", "Travel"],
   learningStyle: "Mixed",
   dailyGoalMinutes: 30,

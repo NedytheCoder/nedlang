@@ -1,5 +1,6 @@
 import json
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import APIRouter, HTTPException
@@ -12,7 +13,8 @@ router = APIRouter()
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 
-# ─── Request model ────────────────────────────────────────────────────────────
+# ─── Shared request model ─────────────────────────────────────────────────────
+# Both reading and listening assessments accept the same input payload.
 
 class ReadingTestRequest(BaseModel):
     target_language: str          # e.g. "fr", "ja", "zh", "ko"
@@ -22,9 +24,30 @@ class ReadingTestRequest(BaseModel):
     interests: list[str] = []
 
 
+class ListeningTestRequest(BaseModel):
+    target_language: str
+    native_language: str
+    framework: str
+    learning_goal: str = ""
+    interests: list[str] = []
+
+
+# ─── Listening question schema ────────────────────────────────────────────────
+
+class ListeningQuestion(BaseModel):
+    question_no: int
+    question_level: str
+    question_type: str            # always "listening_mcq"
+    question_skill: str           # always "listening"
+    transcript: str               # authentic spoken-style passage
+    question: str                 # comprehension question
+    options: list[str]            # 4 options, no letter prefix
+    correct_answer: str           # "A" | "B" | "C" | "D"
+    audio_url: Optional[str]      # null until TTS is generated
+    tts_status: str               # "pending" | "ready" | "failed"
+
+
 # ─── Framework distributions ──────────────────────────────────────────────────
-# Each entry specifies how many questions to generate per level.
-# Order = ascending difficulty (determines question numbering).
 
 _DISTRIBUTIONS: dict[str, list[dict]] = {
     "CEFR": [
@@ -60,7 +83,6 @@ _DISTRIBUTIONS: dict[str, list[dict]] = {
     ],
 }
 
-# ISO 639-1 → full language name for natural prompting
 _LANG_NAMES: dict[str, str] = {
     "en": "English", "fr": "French",   "de": "German",   "es": "Spanish",
     "it": "Italian", "pt": "Portuguese","zh": "Chinese",  "ja": "Japanese",
@@ -68,6 +90,8 @@ _LANG_NAMES: dict[str, str] = {
     "pl": "Polish",  "sv": "Swedish",   "tr": "Turkish",  "hi": "Hindi",
 }
 
+
+# ─── Shared helpers ───────────────────────────────────────────────────────────
 
 def _lang_name(code: str) -> str:
     return _LANG_NAMES.get(code.lower(), code)
@@ -86,10 +110,6 @@ def _total_questions(framework: str) -> int:
 
 
 def _unwrap_array(data: object) -> list:
-    """
-    The model may wrap the array in an object (required by json_object mode).
-    Walk the top-level values until we find a list and return it.
-    """
     if isinstance(data, list):
         return data
     if isinstance(data, dict):
@@ -99,41 +119,31 @@ def _unwrap_array(data: object) -> list:
     raise ValueError("OpenAI response did not contain a JSON array.")
 
 
-# ─── Existing health endpoint (unchanged) ────────────────────────────────────
-
-@router.get("/reading")
-def reading_test():
-    return {"message": "Hello from Reading Test API"}
-
-
-# ─── Reading questions ────────────────────────────────────────────────────────
-
-@router.post("/reading_questions")
-def reading_questions(req: ReadingTestRequest):
-    """
-    Generate a placement reading assessment.
-
-    Returns a JSON array of multiple-choice questions distributed across
-    the correct levels for the given framework (CEFR / HSK / JLPT / TOPIK).
-    """
-    framework = req.framework.upper()
-
-    if framework not in _DISTRIBUTIONS:
+def _validate_framework(framework: str) -> str:
+    fw = framework.upper()
+    if fw not in _DISTRIBUTIONS:
         raise HTTPException(
             status_code=400,
             detail=(
-                f"Unsupported framework '{req.framework}'. "
+                f"Unsupported framework '{framework}'. "
                 f"Accepted values: {', '.join(_DISTRIBUTIONS)}"
             ),
         )
+    return fw
 
-    target  = _lang_name(req.target_language)
-    native  = _lang_name(req.native_language)
-    total   = _total_questions(framework)
-    dist    = _build_distribution_block(framework)
-    interests = ", ".join(req.interests) if req.interests else "general topics"
 
-    system_prompt = f"""You are an expert language assessment engine.
+# ─── Reading prompt builder ───────────────────────────────────────────────────
+
+def _build_reading_prompts(
+    framework: str,
+    target: str,
+    native: str,
+    learning_goal: str,
+    interests: str,
+    total: int,
+    dist: str,
+) -> tuple[str, str]:
+    system = f"""You are an expert language assessment engine.
 
 Your task is to generate a placement assessment.
 
@@ -147,7 +157,7 @@ DISTRIBUTION — generate exactly this many questions per level, in this order:
 LEARNER CONTEXT:
 * Target language : {target}
 * Native language : {native}
-* Learning goal   : {req.learning_goal}
+* Learning goal   : {learning_goal}
 * Interests       : {interests}
 
 QUESTION RULES:
@@ -168,42 +178,197 @@ OUTPUT RULES:
 * answer is the letter of the correct option: "A", "B", "C", or "D".
 * Do not return markdown. Do not return explanations. Return only valid JSON."""
 
-    user_prompt = (
+    user = (
         f"Generate the {framework} placement reading assessment for a {native} speaker "
         f"learning {target}. "
         f"Follow the exact distribution. "
         f"Return only the JSON object with the questions array."
     )
+    return system, user
+
+
+# ─── Listening prompt builder ─────────────────────────────────────────────────
+
+def _build_listening_prompts(
+    framework: str,
+    target: str,
+    native: str,
+    learning_goal: str,
+    interests: str,
+    total: int,
+    dist: str,
+) -> tuple[str, str]:
+    system = f"""You are an expert language assessment engine specialising in listening comprehension.
+
+Your task is to generate a placement listening assessment.
+Each question consists of an authentic spoken-language transcript paired with a comprehension question.
+
+FRAMEWORK: {framework}
+
+DISTRIBUTION — generate exactly this many questions per level, in this order:
+{dist}
+
+LEARNER CONTEXT:
+* Target language : {target}
+* Native language : {native}
+* Learning goal   : {learning_goal}
+* Interests       : {interests}
+
+TRANSCRIPT RULES:
+* Every transcript must be written entirely in {target}.
+* Transcripts must sound like authentic natural speech — not textbook sentences.
+  Use contractions, hesitations, ellipsis, and colloquial phrasing where appropriate.
+* Vary the format: short dialogues, monologues, announcements, voicemails, radio snippets,
+  or casual conversations — whichever suits the level.
+* Transcript length must match the level:
+  - A1/N5/HSK1/TOPIK1: 1–2 sentences (very short, simple)
+  - A2/N4/HSK2/TOPIK2: 3–4 sentences
+  - B1/N3/HSK3/TOPIK3: 4–6 sentences
+  - B2/N2/HSK4/TOPIK4: 6–8 sentences
+  - C1/N1/HSK5/TOPIK5: 8–10 sentences (complex, natural pace)
+  - C2/HSK6/TOPIK6: 10+ sentences (nuanced, idiomatic)
+* Questions must increase in difficulty strictly according to the framework level order.
+* Where natural, weave vocabulary and scenarios from the learner's interests: {interests}.
+
+QUESTION RULES:
+* The comprehension question must be answerable solely from the transcript.
+* Test: main idea, specific detail, inference, speaker attitude, or vocabulary in context.
+* Multiple choice only — four options per question (A, B, C, D).
+* Exactly one correct answer per question.
+* Write the comprehension question in {native} so the learner understands what to listen for.
+
+OUTPUT RULES:
+* Return exactly {total} questions numbered sequentially (question_no 1 → {total}).
+* Wrap the array in a JSON object: {{"questions": [ ... ]}}
+* Each object must contain exactly these keys:
+  question_no, question_level, question_type, question_skill, transcript, question, options, correct_answer
+* question_type is always "listening_mcq".
+* question_skill is always "listening".
+* options is an array of 4 strings — full text, no letter prefix.
+* correct_answer is the letter of the correct option: "A", "B", "C", or "D".
+* Do not return markdown. Do not return explanations. Return only valid JSON."""
+
+    user = (
+        f"Generate the {framework} placement listening assessment for a {native} speaker "
+        f"learning {target}. "
+        f"All transcripts must be authentic natural {target} speech. "
+        f"Comprehension questions must be in {native}. "
+        f"Follow the exact distribution. "
+        f"Return only the JSON object with the questions array."
+    )
+    return system, user
+
+
+# ─── OpenAI service layer ─────────────────────────────────────────────────────
+
+def _call_openai(system_prompt: str, user_prompt: str) -> list:
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        temperature=0.3,
+        response_format={"type": "json_object"},
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user",   "content": user_prompt},
+        ],
+    )
+    raw = response.choices[0].message.content or ""
+    if not raw:
+        raise HTTPException(status_code=502, detail="OpenAI returned an empty response.")
+    data = json.loads(raw)
+    return _unwrap_array(data)
+
+
+# ─── TTS service interface (future integration point) ─────────────────────────
+#
+# Future flow:
+#   transcript -> TTS provider -> audio file -> storage -> audio_url
+#
+# To integrate a provider (OpenAI TTS, ElevenLabs, Azure Speech, etc.):
+#   1. Implement _generate_audio(transcript: str, level: str) -> str  (returns audio_url)
+#   2. Call it here and set tts_status = "ready" / "failed" accordingly
+#   3. No other changes to the endpoint or schema are required.
+
+def _attach_tts_placeholders(questions: list) -> list[dict]:
+    result = []
+    for q in questions:
+        result.append({
+            **q,
+            "audio_url": None,    # populated once TTS is integrated
+            "tts_status": "pending",
+        })
+    return result
+
+
+# ─── Health endpoints ─────────────────────────────────────────────────────────
+
+@router.get("/reading")
+def reading_health():
+    return {"message": "Hello from Reading Test API"}
+
+
+@router.get("/listening")
+def listening_health():
+    return {"message": "Hello from Listening Test API"}
+
+
+# ─── Reading questions ────────────────────────────────────────────────────────
+
+@router.post("/reading_questions")
+def reading_questions(req: ReadingTestRequest):
+    """
+    Generate a placement reading assessment.
+
+    Returns a JSON array of MCQ questions distributed across framework levels.
+    """
+    framework = _validate_framework(req.framework)
+    target    = _lang_name(req.target_language)
+    native    = _lang_name(req.native_language)
+    total     = _total_questions(framework)
+    dist      = _build_distribution_block(framework)
+    interests = ", ".join(req.interests) if req.interests else "general topics"
+
+    system_prompt, user_prompt = _build_reading_prompts(
+        framework, target, native, req.learning_goal, interests, total, dist
+    )
 
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            temperature=0.3,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user",   "content": user_prompt},
-            ],
-        )
-
-        raw = response.choices[0].message.content or ""
-
-        if not raw:
-            raise HTTPException(status_code=502, detail="OpenAI returned an empty response.")
-
-        data = json.loads(raw)
-        questions = _unwrap_array(data)
-
-        return questions
-
+        return _call_openai(system_prompt, user_prompt)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail=f"Invalid JSON from OpenAI: {exc}") from exc
-
     except HTTPException:
         raise
-
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-# @router.post("/writing_questions")
-# def writing_questions(req: WritingTestRequest)
+
+# ─── Listening questions ──────────────────────────────────────────────────────
+
+@router.post("/listening_questions")
+def listening_questions(req: ListeningTestRequest):
+    """
+    Generate a placement listening assessment.
+
+    Returns a JSON array of listening questions, each with an authentic spoken-language
+    transcript, a comprehension question, four options, and TTS placeholders ready
+    for future audio generation.
+    """
+    framework = _validate_framework(req.framework)
+    target    = _lang_name(req.target_language)
+    native    = _lang_name(req.native_language)
+    total     = _total_questions(framework)
+    dist      = _build_distribution_block(framework)
+    interests = ", ".join(req.interests) if req.interests else "general topics"
+
+    system_prompt, user_prompt = _build_listening_prompts(
+        framework, target, native, req.learning_goal, interests, total, dist
+    )
+
+    try:
+        raw_questions = _call_openai(system_prompt, user_prompt)
+        return _attach_tts_placeholders(raw_questions)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"Invalid JSON from OpenAI: {exc}") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

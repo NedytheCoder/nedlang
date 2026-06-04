@@ -144,20 +144,20 @@ const PREVIEW_PAIRS = [
 ]
 
 export default function StepLanguage({ data, onChange, errors }: StepProps) {
-  const { t } = useTranslation()
+  const { t, lang } = useTranslation()
   const [languages, setLanguages] = useState<Language[]>([])
   const [loading, setLoading] = useState(true)
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
-
   useEffect(() => {
-    fetch(`${backendUrl}/languages`)
+    setLoading(true)
+    fetch(`${backendUrl}/languages?ui_lang=${lang}`)
       .then((r) => r.json())
-      .then((rows: { code: string; name: string; nativeName: string }[]) => {
-        setLanguages(rows.map((r) => ({ ...r, flag: FLAG_MAP[r.code] ?? DEFAULT_FLAG })))
+      .then((rows: { code: string; name: string; nativeName: string; localizedName: string }[]) => {
+        setLanguages(rows.map((r) => ({ ...r, name: r.localizedName, flag: FLAG_MAP[r.code] ?? DEFAULT_FLAG })))
       })
       .finally(() => setLoading(false))
-  }, [])
+  }, [lang])
 
   const getLang = (code: string) => languages.find((l) => l.code === code)
 

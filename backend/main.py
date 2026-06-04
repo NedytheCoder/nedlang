@@ -1,10 +1,13 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from dotenv import load_dotenv
 from api.reception.test import router as test_router
 from api.user.handler import router as user_router
 from database.script import get_connection
+from api.lang_map import localize
+from api.hobby_map import localize_hobby
+from api.motivation_map import localize_motivation
 import os
 
 load_dotenv()
@@ -28,35 +31,49 @@ app.include_router(user_router, prefix="/user", tags=["User"])
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 @app.get("/hobbies")
-def get_hobbies():
+def get_hobbies(ui_lang: str = Query(default="en")):
     conn = get_connection()
     try:
         rows = conn.execute("SELECT name FROM hobbies ORDER BY name").fetchall()
-        return [r["name"] for r in rows]
+        return [
+            {"name": r["name"], "localizedName": localize_hobby(r["name"], ui_lang)}
+            for r in rows
+        ]
     finally:
         conn.close()
 
 
 @app.get("/motivations")
-def get_motivations():
+def get_motivations(ui_lang: str = Query(default="en")):
     conn = get_connection()
     try:
         rows = conn.execute(
             "SELECT label FROM motivations WHERE is_active = 1 ORDER BY id"
         ).fetchall()
-        return [r["label"] for r in rows]
+        return [
+            {"label": r["label"], "localizedLabel": localize_motivation(r["label"], ui_lang)}
+            for r in rows
+        ]
     finally:
         conn.close()
 
 
 @app.get("/languages")
-def get_languages():
+def get_languages(ui_lang: str = Query(default="en")):
     conn = get_connection()
     try:
         rows = conn.execute(
             "SELECT code, name, native_name FROM languages WHERE is_active = 1 ORDER BY name"
         ).fetchall()
-        return [{"code": r["code"], "name": r["name"], "nativeName": r["native_name"]} for r in rows]
+        return [
+            {
+                "code": r["code"],
+                "name": r["name"],
+                "nativeName": r["native_name"],
+                "localizedName": localize(r["code"], ui_lang, r["name"]),
+            }
+            for r in rows
+        ]
     finally:
         conn.close()
 

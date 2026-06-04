@@ -1,11 +1,13 @@
 "use client"
 
 import { useState } from "react"
+import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
 import { GiEarthAfricaEurope } from "react-icons/gi"
 import { useTranslation } from "../../../i18n/LanguageProvider"
 import { OnboardingData, INITIAL_DATA, TOTAL_STEPS } from "./components/types"
+import { isMotivationValid } from "./components/motivationUtils"
 import ProgressBar from "./components/ProgressBar"
 import StepAccount from "./components/StepAccount"
 import StepLanguage from "./components/StepLanguage"
@@ -49,7 +51,9 @@ function validateStep(
   }
 
   if (step === 2) {
-    if (!data.learning_goal || data.learning_goal.trim().length < 20) e.learning_goal = t("onb_motiv_val")
+    if (data.selected_motivations.length === 0 && !isMotivationValid(data.learning_goal)) {
+      e.learning_goal = t("onb_motiv_val")
+    }
   }
 
   if (step === 3) {
@@ -71,7 +75,8 @@ const variants = {
 }
 
 export default function SignupPage() {
-  const { t } = useTranslation()
+  const { t, setLang } = useTranslation()
+  const router = useRouter()
   const [step, setStep] = useState(0)
   const [dir, setDir] = useState(1)
   const [data, setData] = useState<OnboardingData>(INITIAL_DATA)
@@ -87,12 +92,28 @@ export default function SignupPage() {
     })
   }
 
-  const handleNext = () => {
+  const handleNext = async () => {
     const newErrors = validateStep(step, data, t)
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors)
       return
     }
+
+    if (step === 0) {
+      try {
+        const res = await fetch(
+          `http://localhost:8000/user/check-email?email=${encodeURIComponent(data.email)}`
+        )
+        const { available } = await res.json()
+        if (!available) {
+          setErrors({ email: "An account with this email already exists." })
+          return
+        }
+      } catch {
+        // network error — let it through and the final submit will catch it
+      }
+    }
+
     setDir(1)
     setStep((s) => s + 1)
     setErrors({})
@@ -122,6 +143,7 @@ export default function SignupPage() {
           native_language: data.native_language,
           target_language: data.target_language,
           learning_goal: data.learning_goal,
+          selected_motivations: data.selected_motivations,
           top_hobbies: data.top_hobbies,
           preferred_learning_style: data.preferred_learning_style,
           daily_goal_minutes: data.daily_goal_minutes,
@@ -132,8 +154,9 @@ export default function SignupPage() {
         setSubmitError(body.detail ?? "Registration failed. Please try again.")
         return
       }
-      // TODO: redirect to dashboard or login
-      console.log("Registered:", body)
+      localStorage.setItem("nedlang_user_id", body.id)
+      setLang(data.native_language as "en" | "fr" | "de" | "zh")
+      router.push("/reception")
     } catch {
       setSubmitError("Could not reach the server. Please try again.")
     } finally {

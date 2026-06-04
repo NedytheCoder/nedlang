@@ -38,6 +38,7 @@ _TABLES: list[str] = [
         native_language_id      INTEGER NOT NULL,
         target_language_id      INTEGER NOT NULL,
         learning_goal           TEXT,
+        selected_motivations    TEXT,
         preferred_learning_style TEXT,
         daily_goal_minutes      INTEGER,
         current_level           TEXT,

@@ -4,13 +4,21 @@ import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
 import { ReceptionUser } from "./receptionMockData"
 
+const STYLE_KEY: Record<string, string> = {
+  reading:   "onb_style_reading",
+  listening: "onb_style_listening",
+  speaking:  "onb_style_speaking",
+  writing:   "onb_style_writing",
+  mixed:     "onb_style_mixed",
+}
+
 export default function PersonalizationProfile({ user }: { user: ReceptionUser }) {
   const { t } = useTranslation()
 
   const rows = [
     { icon: "🗣️", labelKey: "rec_persona_native", value: `${user.nativeLanguage.flag} ${user.nativeLanguage.name}` },
     { icon: "🎯", labelKey: "rec_persona_target", value: `${user.targetLanguage.flag} ${user.targetLanguage.name}` },
-    { icon: "📖", labelKey: "rec_persona_style", value: user.learningStyle },
+    { icon: "📖", labelKey: "rec_persona_style", value: t(STYLE_KEY[user.learningStyle] ?? user.learningStyle) },
     { icon: "⏱️", labelKey: "rec_persona_daily", value: `${user.dailyGoalMinutes} ${t("rec_persona_min")}` },
   ]
 
@@ -43,15 +51,39 @@ export default function PersonalizationProfile({ user }: { user: ReceptionUser }
         ))}
       </div>
 
-      {/* Learning goal */}
-      <div className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 mb-4">
-        <p className="text-[10px] font-medium text-slate-400 dark:text-gray-500 uppercase tracking-wide mb-1">
-          {t("rec_persona_goal")}
-        </p>
-        <p className="text-sm font-medium text-slate-900 dark:text-white leading-snug">{user.learningGoal}</p>
-      </div>
+      {/* Motivations */}
+      {user.selectedMotivations.length > 0 && (
+        <div className="mb-4">
+          <p className="text-[10px] font-medium text-slate-400 dark:text-gray-500 uppercase tracking-wide mb-2">
+            {t("rec_persona_motivations")}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {user.selectedMotivations.map((m, i) => (
+              <motion.span
+                key={m}
+                initial={{ opacity: 0, scale: 0.85 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.6 + i * 0.07 }}
+                className="px-3 py-1.5 text-xs font-medium bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border border-violet-100 dark:border-violet-500/20 rounded-full"
+              >
+                {m}
+              </motion.span>
+            ))}
+          </div>
+        </div>
+      )}
 
-      {/* Hobbies */}
+      {/* Learning goal */}
+      {user.learningGoal && (
+        <div className="bg-slate-50 dark:bg-slate-800 rounded-xl px-4 py-3 mb-4">
+          <p className="text-[10px] font-medium text-slate-400 dark:text-gray-500 uppercase tracking-wide mb-1">
+            {t("rec_persona_goal")}
+          </p>
+          <p className="text-sm font-medium text-slate-900 dark:text-white leading-snug">{user.learningGoal}</p>
+        </div>
+      )}
+
+      {/* Hobbies — already localized by backend */}
       <div className="mb-5">
         <p className="text-[10px] font-medium text-slate-400 dark:text-gray-500 uppercase tracking-wide mb-2">
           {t("rec_persona_hobbies")}

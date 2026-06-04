@@ -33,7 +33,7 @@ function LevelBadge({ level, label, index, total, colorText, colorBg }: {
   )
 }
 
-function FrameworkPanel({ framework, colors }: { framework: FrameworkEntry; colors: typeof FRAMEWORK_COLORS.cefr }) {
+function FrameworkPanel({ framework, colors, trackedLabel }: { framework: FrameworkEntry; colors: typeof FRAMEWORK_COLORS.cefr; trackedLabel: string }) {
   return (
     <div className={`bg-gradient-to-br ${colors.bg} border ${colors.border} rounded-2xl p-4 sm:p-6 lg:p-8`}>
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
@@ -51,7 +51,7 @@ function FrameworkPanel({ framework, colors }: { framework: FrameworkEntry; colo
       </div>
       <div className="mt-6 flex items-center gap-2 text-xs text-slate-500 dark:text-gray-500">
         <FaCheckCircle className="w-4 h-4 text-emerald-600 dark:text-emerald-500 shrink-0" />
-        <span>Progress automatically tracked against {framework.name} standards</span>
+        <span>{trackedLabel}</span>
       </div>
     </div>
   )
@@ -61,12 +61,13 @@ export default function FrameworkSection() {
   const { t } = useTranslation()
   const [active, setActive] = useState<FrameworkKey>("cefr")
 
+  const w = t("ned_level_words")
   const frameworks = useMemo<Record<FrameworkKey, FrameworkEntry>>(() => ({
-    cefr:  { name: "CEFR", description: t("ned_cefr_desc"),  detail: t("ned_cefr_detail"),  languages: t("ned_cefr_languages"),  levels: ["A1","A2","B1","B2","C1","C2"], levelLabels: ["Beginner","Elementary","Intermediate","Upper-Int.","Advanced","Mastery"] },
-    hsk:   { name: "HSK",  description: t("ned_hsk_desc"),   detail: t("ned_hsk_detail"),   languages: t("ned_hsk_languages"),   levels: ["HSK 1","HSK 2","HSK 3","HSK 4","HSK 5","HSK 6"], levelLabels: ["150 words","300 words","600 words","1,200 words","2,500 words","5,000+"] },
-    jlpt:  { name: "JLPT", description: t("ned_jlpt_desc"),  detail: t("ned_jlpt_detail"),  languages: t("ned_jlpt_languages"),  levels: ["N5","N4","N3","N2","N1"], levelLabels: ["Basic","Elementary","Intermediate","Pre-Advanced","Advanced"] },
+    cefr:  { name: "CEFR", description: t("ned_cefr_desc"),  detail: t("ned_cefr_detail"),  languages: t("ned_cefr_languages"),  levels: ["A1","A2","B1","B2","C1","C2"], levelLabels: [t("ned_level_beginner"),t("ned_level_elementary"),t("ned_level_intermediate"),t("ned_level_upper_int"),t("ned_level_advanced"),t("ned_level_mastery")] },
+    hsk:   { name: "HSK",  description: t("ned_hsk_desc"),   detail: t("ned_hsk_detail"),   languages: t("ned_hsk_languages"),   levels: ["HSK 1","HSK 2","HSK 3","HSK 4","HSK 5","HSK 6"], levelLabels: [`150 ${w}`,`300 ${w}`,`600 ${w}`,`1,200 ${w}`,`2,500 ${w}`,`5,000+ ${w}`] },
+    jlpt:  { name: "JLPT", description: t("ned_jlpt_desc"),  detail: t("ned_jlpt_detail"),  languages: t("ned_jlpt_languages"),  levels: ["N5","N4","N3","N2","N1"], levelLabels: [t("ned_level_basic"),t("ned_level_elementary"),t("ned_level_intermediate"),t("ned_level_pre_advanced"),t("ned_level_advanced")] },
     topik: { name: "TOPIK",description: t("ned_topik_desc"), detail: t("ned_topik_detail"), languages: t("ned_topik_languages"), levels: ["Level 1","Level 2","Level 3","Level 4","Level 5","Level 6"], levelLabels: ["TOPIK I","TOPIK I","TOPIK II","TOPIK II","TOPIK II","TOPIK II"] },
-  }), [t])
+  }), [t, w])
 
   const TAB_KEYS: FrameworkKey[] = ["cefr", "hsk", "jlpt", "topik"]
 
@@ -98,7 +99,11 @@ export default function FrameworkSection() {
 
         <AnimatePresence mode="wait">
           <motion.div key={active} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.2 }}>
-            <FrameworkPanel framework={frameworks[active]} colors={FRAMEWORK_COLORS[active]} />
+            <FrameworkPanel
+              framework={frameworks[active]}
+              colors={FRAMEWORK_COLORS[active]}
+              trackedLabel={`${t("ned_framework_tracked")} ${frameworks[active].name} ${t("ned_framework_standards")}`}
+            />
           </motion.div>
         </AnimatePresence>
 

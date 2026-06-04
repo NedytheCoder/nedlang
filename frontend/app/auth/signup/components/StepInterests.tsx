@@ -7,27 +7,29 @@ import { StepProps } from "./types"
 
 const MAX = 3
 
+interface Hobby { name: string; localizedName: string }
+
 export default function StepInterests({ data, onChange, errors }: StepProps) {
-  const { t } = useTranslation()
+  const { t, lang } = useTranslation()
   const [query, setQuery] = useState("")
-  const [presetHobbies, setPresetHobbies] = useState<string[]>([])
+  const [presetHobbies, setPresetHobbies] = useState<Hobby[]>([])
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
   useEffect(() => {
-    fetch(`${backendUrl}/hobbies`)
+    fetch(`${backendUrl}/hobbies?ui_lang=${lang}`)
       .then((r) => r.json())
       .then(setPresetHobbies)
-  }, [])
+  }, [lang])
 
   const selected = data.top_hobbies
   const canAdd = selected.length < MAX
-  const isSelected = (h: string) => selected.includes(h)
+  const isSelected = (name: string) => selected.includes(name)
 
-  const toggle = (hobby: string) => {
-    if (isSelected(hobby)) {
-      onChange({ top_hobbies: selected.filter((h) => h !== hobby) })
+  const toggle = (name: string) => {
+    if (isSelected(name)) {
+      onChange({ top_hobbies: selected.filter((h) => h !== name) })
     } else if (canAdd) {
-      onChange({ top_hobbies: [...selected, hobby] })
+      onChange({ top_hobbies: [...selected, name] })
     }
   }
 
@@ -38,8 +40,14 @@ export default function StepInterests({ data, onChange, errors }: StepProps) {
     setQuery("")
   }
 
+  // Map canonical name → localized display name for selected chips
+  const displayName = (name: string) => {
+    const found = presetHobbies.find((h) => h.name === name)
+    return found ? found.localizedName : name
+  }
+
   const filteredPresets = presetHobbies.filter(
-    (h) => h.toLowerCase().includes(query.toLowerCase()) && !presetHobbies.includes(query)
+    (h) => h.name.toLowerCase().includes(query.toLowerCase()) && !presetHobbies.some((p) => p.name === query)
   )
 
   const showAddButton =
@@ -75,18 +83,18 @@ export default function StepInterests({ data, onChange, errors }: StepProps) {
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-2">
           <AnimatePresence>
-            {selected.map((hobby) => (
+            {selected.map((name) => (
               <motion.button
-                key={hobby}
+                key={name}
                 type="button"
-                onClick={() => toggle(hobby)}
+                onClick={() => toggle(name)}
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.8 }}
                 transition={{ duration: 0.15 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-indigo-600 text-white rounded-full shadow-sm shadow-indigo-500/20"
               >
-                {hobby}
+                {displayName(name)}
                 <svg className="w-3 h-3 opacity-80" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -121,14 +129,14 @@ export default function StepInterests({ data, onChange, errors }: StepProps) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {filteredPresets.map((hobby) => {
-          const sel = isSelected(hobby)
+        {filteredPresets.map(({ name, localizedName }) => {
+          const sel = isSelected(name)
           const disabled = !sel && !canAdd
           return (
             <button
-              key={hobby}
+              key={name}
               type="button"
-              onClick={() => toggle(hobby)}
+              onClick={() => toggle(name)}
               disabled={disabled}
               className={`px-3 py-1.5 text-xs rounded-full border transition-all ${
                 sel
@@ -138,7 +146,7 @@ export default function StepInterests({ data, onChange, errors }: StepProps) {
                   : "bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-white/10 text-slate-600 dark:text-gray-400 hover:border-indigo-300 dark:hover:border-indigo-500/40 hover:text-indigo-700 dark:hover:text-indigo-300"
               }`}
             >
-              {hobby}
+              {localizedName}
             </button>
           )
         })}
