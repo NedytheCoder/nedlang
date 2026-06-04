@@ -1,12 +1,17 @@
 "use client"
 
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockSkills, SkillData } from "./mockData"
+
+export interface SkillData {
+  value: number
+  trend: number
+}
 
 type SkillKey = "reading" | "listening" | "speaking" | "writing"
 
 // Radar chart with 4 axes (SVG)
 function RadarChart({ skills }: { skills: Record<SkillKey, SkillData> }) {
+  const { t } = useTranslation()
   const cx = 110
   const cy = 110
   const maxR = 80
@@ -90,7 +95,7 @@ function RadarChart({ skills }: { skills: Record<SkillKey, SkillData> }) {
             fill="currentColor"
             style={{ fill: "rgb(100,116,139)" }}
           >
-            {key.charAt(0).toUpperCase() + key.slice(1)}
+            {t(`dash_skill_${key}`)}
           </text>
         )
       })}
@@ -112,7 +117,11 @@ function RadarChart({ skills }: { skills: Record<SkillKey, SkillData> }) {
   )
 }
 
-export default function SkillMastery() {
+interface Props {
+  skills: Record<SkillKey, SkillData>
+}
+
+export default function SkillMastery({ skills }: Props) {
   const { t } = useTranslation()
 
   const skillList: { key: SkillKey; icon: string; labelKey: string; color: string }[] = [
@@ -122,7 +131,7 @@ export default function SkillMastery() {
     { key: "writing", icon: "✍️", labelKey: "dash_skill_writing", color: "text-emerald-500" },
   ]
 
-  const sorted = [...skillList].sort((a, b) => mockSkills[b.key].value - mockSkills[a.key].value)
+  const sorted = [...skillList].sort((a, b) => skills[b.key].value - skills[a.key].value)
   const strongest = sorted[0]
   const weakest = sorted[sorted.length - 1]
 
@@ -137,12 +146,12 @@ export default function SkillMastery() {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
         {/* Radar chart */}
-        <RadarChart skills={mockSkills} />
+        <RadarChart skills={skills} />
 
         {/* Skill bars */}
         <div className="space-y-3">
           {skillList.map(({ key, icon, labelKey, color }) => {
-            const { value, trend } = mockSkills[key]
+            const { value, trend } = skills[key]
             return (
               <div key={key}>
                 <div className="flex items-center justify-between mb-1.5">
@@ -169,7 +178,7 @@ export default function SkillMastery() {
           <div className="mt-4 bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl p-3">
             <p className="text-xs text-amber-700 dark:text-amber-300">
               <span className="font-semibold">{t("dash_skill_focus")}: </span>
-              {t(`dash_skill_${weakest.key}`)} — {mockSkills[weakest.key].value}%
+              {t(`dash_skill_${weakest.key}`)} — {skills[weakest.key].value}%
             </p>
           </div>
         </div>

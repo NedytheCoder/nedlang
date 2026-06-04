@@ -2,7 +2,12 @@
 
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockInsights, Insight } from "./mockData"
+
+export interface Insight {
+  type: "strength" | "improvement" | "weakness" | "habit"
+  icon: string
+  textKey: string
+}
 
 const TYPE_STYLES: Record<Insight["type"], { bg: string; border: string; label: string; labelKey: string }> = {
   strength:    { bg: "bg-emerald-50 dark:bg-emerald-500/10",   border: "border-emerald-100 dark:border-emerald-500/20",   label: "Strength",    labelKey: "dash_insights_strength"    },
@@ -18,7 +23,11 @@ const TYPE_TEXT_COLORS: Record<Insight["type"], string> = {
   habit:       "text-violet-700 dark:text-violet-300",
 }
 
-export default function PersonalizedInsights() {
+interface Props {
+  insights: Insight[]
+}
+
+export default function PersonalizedInsights({ insights }: Props) {
   const { t } = useTranslation()
 
   return (
@@ -34,7 +43,7 @@ export default function PersonalizedInsights() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-        {mockInsights.map((insight, i) => {
+        {insights.map((insight, i) => {
           const style = TYPE_STYLES[insight.type]
           return (
             <motion.div

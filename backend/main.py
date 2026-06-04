@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from dotenv import load_dotenv
 from api.reception.test import router as test_router
+from api.reception.grading import router as grading_router
 from api.user.handler import router as user_router
 from database.script import get_connection
 from api.lang_map import localize
@@ -25,8 +26,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(test_router, prefix="/reception/test", tags=["Reception Test API"])
-app.include_router(user_router, prefix="/user", tags=["User"])
+app.include_router(test_router,    prefix="/reception/test",  tags=["Reception Test API"])
+app.include_router(grading_router, prefix="/reception/grade", tags=["Reception Grading API"])
+app.include_router(user_router,    prefix="/user",            tags=["User"])
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 

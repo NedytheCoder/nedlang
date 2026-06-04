@@ -2,11 +2,15 @@
 
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockGoal, mockCurrentLesson } from "./mockData"
 
-export default function HeroProgress() {
+interface Props {
+  goal: { title: string; percentComplete: number; targetLevel: string | null }
+  currentLesson: { title: string; module: string; lessonNumber: number; totalLessons: number; estimatedMinutes: number } | null
+}
+
+export default function HeroProgress({ goal, currentLesson }: Props) {
   const { t } = useTranslation()
-  const pct = mockGoal.percentComplete
+  const pct = goal.percentComplete
 
   return (
     <div className="bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-700 rounded-2xl p-5 sm:p-8 text-white overflow-hidden relative">
@@ -21,7 +25,7 @@ export default function HeroProgress() {
         <div className="space-y-5">
           <div>
             <p className="text-indigo-200 text-xs font-medium uppercase tracking-widest mb-2">{t("dash_hero_goal_label")}</p>
-            <h2 className="text-xl sm:text-2xl font-bold leading-tight">{mockGoal.title}</h2>
+            <h2 className="text-xl sm:text-2xl font-bold leading-tight">{goal.title}</h2>
           </div>
 
           {/* Progress bar */}
@@ -43,11 +47,11 @@ export default function HeroProgress() {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white/10 rounded-xl p-3">
               <p className="text-indigo-200 text-xs mb-1">{t("dash_hero_est_completion")}</p>
-              <p className="font-semibold text-sm">{mockGoal.estimatedCompletion}</p>
+              <p className="font-semibold text-sm">{goal.targetLevel ?? "—"}</p>
             </div>
             <div className="bg-white/10 rounded-xl p-3">
               <p className="text-indigo-200 text-xs mb-1">{t("dash_hero_next_milestone")}</p>
-              <p className="font-semibold text-sm leading-tight">{mockGoal.nextMilestone}</p>
+              <p className="font-semibold text-sm leading-tight">—</p>
             </div>
           </div>
         </div>
@@ -59,31 +63,33 @@ export default function HeroProgress() {
             <div className="flex items-start justify-between gap-3 mb-3">
               <div>
                 <p className="text-indigo-200 text-xs mb-1">{t("dash_hero_current_lesson")}</p>
-                <p className="font-semibold leading-tight">{mockCurrentLesson.title}</p>
-                <p className="text-indigo-200 text-xs mt-1">{mockCurrentLesson.module}</p>
+                <p className="font-semibold leading-tight">{currentLesson?.title ?? "—"}</p>
+                <p className="text-indigo-200 text-xs mt-1">{currentLesson?.module ?? ""}</p>
               </div>
               <span className="flex-shrink-0 bg-white/20 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap">
-                {mockCurrentLesson.estimatedMinutes} {t("dash_hero_min")}
+                {currentLesson?.estimatedMinutes ?? 0} {t("dash_hero_min")}
               </span>
             </div>
             {/* Lesson progress dots */}
-            <div className="flex items-center gap-1.5">
-              {Array.from({ length: mockCurrentLesson.totalLessons }, (_, i) => (
-                <div
-                  key={i}
-                  className={`h-1.5 flex-1 rounded-full transition-colors ${
-                    i < mockCurrentLesson.lessonNumber - 1
-                      ? "bg-white"
-                      : i === mockCurrentLesson.lessonNumber - 1
-                      ? "bg-white/70"
-                      : "bg-white/25"
-                  }`}
-                />
-              ))}
-              <span className="text-indigo-200 text-xs ml-1 whitespace-nowrap">
-                {mockCurrentLesson.lessonNumber}/{mockCurrentLesson.totalLessons}
-              </span>
-            </div>
+            {currentLesson && (
+              <div className="flex items-center gap-1.5">
+                {Array.from({ length: currentLesson.totalLessons }, (_, i) => (
+                  <div
+                    key={i}
+                    className={`h-1.5 flex-1 rounded-full transition-colors ${
+                      i < currentLesson.lessonNumber - 1
+                        ? "bg-white"
+                        : i === currentLesson.lessonNumber - 1
+                        ? "bg-white/70"
+                        : "bg-white/25"
+                    }`}
+                  />
+                ))}
+                <span className="text-indigo-200 text-xs ml-1 whitespace-nowrap">
+                  {currentLesson.lessonNumber}/{currentLesson.totalLessons}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* CTA buttons */}

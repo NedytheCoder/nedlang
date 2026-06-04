@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockProfile, FRAMEWORK_LEVELS } from "./mockData"
+import { FRAMEWORK_DATA } from "../reception/frameworkUtils"
 
 const LEVEL_COLORS: Record<string, string> = {
   A1: "from-emerald-400 to-teal-500",
@@ -24,11 +24,15 @@ const LEVEL_COLORS: Record<string, string> = {
   N1: "from-violet-400 to-purple-500",
 }
 
-export default function LevelCard() {
-  const { t } = useTranslation()
-  const { framework, currentLevel, xp, xpCurrentLevel, xpNextLevel } = mockProfile
+interface Props {
+  profile: { framework: string; currentLevel: string; xp: number; xpCurrentLevel: number; xpNextLevel: number }
+}
 
-  const levels = FRAMEWORK_LEVELS[framework]
+export default function LevelCard({ profile }: Props) {
+  const { t } = useTranslation()
+  const { framework, currentLevel, xp, xpCurrentLevel, xpNextLevel } = profile
+
+  const levels = FRAMEWORK_DATA[framework as keyof typeof FRAMEWORK_DATA]?.levels ?? []
   const currentIdx = levels.indexOf(currentLevel)
   const nextLevel = levels[currentIdx + 1]
   const xpProgress = ((xp - xpCurrentLevel) / (xpNextLevel - xpCurrentLevel)) * 100

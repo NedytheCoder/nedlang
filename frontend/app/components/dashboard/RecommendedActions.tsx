@@ -2,7 +2,15 @@
 
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockActions, RecommendedAction } from "./mockData"
+
+export interface RecommendedAction {
+  id: number
+  type: "review" | "lesson" | "assessment" | "practice" | "grammar"
+  icon: string
+  titleKey: string
+  priority: "high" | "medium" | "low"
+  estimatedMinutes: number
+}
 
 const PRIORITY_STYLES: Record<RecommendedAction["priority"], { badge: string; border: string }> = {
   high:   { badge: "bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400",     border: "border-red-100 dark:border-red-500/20" },
@@ -16,7 +24,11 @@ const PRIORITY_KEYS: Record<RecommendedAction["priority"], string> = {
   low: "dash_actions_low",
 }
 
-export default function RecommendedActions() {
+interface Props {
+  actions: RecommendedAction[]
+}
+
+export default function RecommendedActions({ actions }: Props) {
   const { t } = useTranslation()
 
   return (
@@ -32,7 +44,7 @@ export default function RecommendedActions() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
-        {mockActions.map((action, i) => {
+        {actions.map((action, i) => {
           const style = PRIORITY_STYLES[action.priority]
           return (
             <motion.div

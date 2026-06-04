@@ -1,7 +1,12 @@
 "use client"
 
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockGrammar, GrammarTopic } from "./mockData"
+
+export interface GrammarTopic {
+  topic: string
+  confidence_score: number
+  progress?: number
+}
 
 function ConfidenceBar({ value, color }: { value: number; color: string }) {
   return (
@@ -45,7 +50,7 @@ function TopicSection({
                 <span className="text-xs text-slate-400">{Math.round(topic.progress * 100)}%</span>
               )}
             </div>
-            <ConfidenceBar value={topic.confidence} color={color} />
+            <ConfidenceBar value={topic.confidence_score} color={color} />
           </div>
         ))}
       </div>
@@ -53,11 +58,15 @@ function TopicSection({
   )
 }
 
-export default function GrammarAnalytics() {
+interface Props {
+  grammar: { mastered: GrammarTopic[]; learning: GrammarTopic[]; review: GrammarTopic[] }
+}
+
+export default function GrammarAnalytics({ grammar }: Props) {
   const { t } = useTranslation()
 
-  const total = mockGrammar.mastered.length + mockGrammar.learning.length + mockGrammar.review.length
-  const masteredPct = Math.round((mockGrammar.mastered.length / total) * 100)
+  const total = grammar.mastered.length + grammar.learning.length + grammar.review.length
+  const masteredPct = total > 0 ? Math.round((grammar.mastered.length / total) * 100) : 0
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/8 rounded-2xl p-5 sm:p-6">
@@ -73,28 +82,28 @@ export default function GrammarAnalytics() {
 
       {/* Overview bar */}
       <div className="flex h-2 rounded-full overflow-hidden mb-5 gap-0.5">
-        <div className="bg-emerald-400 rounded-l-full transition-all" style={{ width: `${(mockGrammar.mastered.length / total) * 100}%` }} />
-        <div className="bg-indigo-400 transition-all" style={{ width: `${(mockGrammar.learning.length / total) * 100}%` }} />
-        <div className="bg-amber-400 rounded-r-full transition-all" style={{ width: `${(mockGrammar.review.length / total) * 100}%` }} />
+        <div className="bg-emerald-400 rounded-l-full transition-all" style={{ width: `${(grammar.mastered.length / total) * 100}%` }} />
+        <div className="bg-indigo-400 transition-all" style={{ width: `${(grammar.learning.length / total) * 100}%` }} />
+        <div className="bg-amber-400 rounded-r-full transition-all" style={{ width: `${(grammar.review.length / total) * 100}%` }} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
         <TopicSection
           titleKey="dash_grammar_mastered"
-          topics={mockGrammar.mastered}
+          topics={grammar.mastered}
           color="bg-emerald-400"
           badgeColor="bg-emerald-400"
         />
         <TopicSection
           titleKey="dash_grammar_learning"
-          topics={mockGrammar.learning}
+          topics={grammar.learning}
           color="bg-indigo-400"
           badgeColor="bg-indigo-400"
           showProgress
         />
         <TopicSection
           titleKey="dash_grammar_review"
-          topics={mockGrammar.review}
+          topics={grammar.review}
           color="bg-amber-400"
           badgeColor="bg-amber-400"
         />

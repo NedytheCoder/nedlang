@@ -2,11 +2,21 @@
 
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockCertification } from "./mockData"
 
-export default function CertificationProgress() {
+interface Props {
+  certification: {
+    name: string
+    targetExam: string | null
+    readiness: number
+    estimatedReadyDate: string | null
+    strongest: string[]
+    weakest: string[]
+  }
+}
+
+export default function CertificationProgress({ certification }: Props) {
   const { t } = useTranslation()
-  const { name, targetExam, readiness, estimatedReadyDate, strongest, weakest } = mockCertification
+  const { name, targetExam, readiness, estimatedReadyDate, strongest, weakest } = certification
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/8 rounded-2xl p-5 sm:p-6">

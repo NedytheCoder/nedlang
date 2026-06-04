@@ -3,7 +3,6 @@
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockErrors } from "./mockData"
 
 type Tab = "vocab" | "grammar" | "structure" | "skills"
 
@@ -21,7 +20,16 @@ const SKILL_KEYS: Record<string, string> = {
   writing: "dash_error_writing",
 }
 
-export default function ErrorAnalysis() {
+interface Props {
+  errors: {
+    vocabulary: { word: string; typeKey: string; count: number }[]
+    grammar: { topic: string; count: number }[]
+    sentenceStructure: { pattern: string; count: number }[]
+    skills: { reading: string[]; listening: string[]; speaking: string[]; writing: string[] }
+  }
+}
+
+export default function ErrorAnalysis({ errors }: Props) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<Tab>("vocab")
 
@@ -60,7 +68,7 @@ export default function ErrorAnalysis() {
         >
           {tab === "vocab" && (
             <div className="space-y-2">
-              {mockErrors.vocabulary.map((e, i) => (
+              {errors.vocabulary.map((e, i) => (
                 <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
                   <div className="flex-1 min-w-0">
                     <span className="text-sm font-medium text-slate-900 dark:text-white">{e.word}</span>
@@ -76,8 +84,8 @@ export default function ErrorAnalysis() {
 
           {tab === "grammar" && (
             <div className="space-y-2">
-              {mockErrors.grammar.map((e, i) => {
-                const maxCount = Math.max(...mockErrors.grammar.map((x) => x.count))
+              {errors.grammar.map((e, i) => {
+                const maxCount = Math.max(...errors.grammar.map((x) => x.count))
                 return (
                   <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
                     <div className="flex-1 min-w-0">
@@ -95,7 +103,7 @@ export default function ErrorAnalysis() {
 
           {tab === "structure" && (
             <div className="space-y-2">
-              {mockErrors.sentenceStructure.map((e, i) => (
+              {errors.sentenceStructure.map((e, i) => (
                 <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
                   <div className="flex-1">
                     <p className="text-xs font-medium text-slate-700 dark:text-gray-300">{e.pattern}</p>
@@ -114,7 +122,7 @@ export default function ErrorAnalysis() {
                     {t(SKILL_KEYS[skill])}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
-                    {mockErrors.skills[skill].map((w) => (
+                    {errors.skills[skill].map((w) => (
                       <span key={w} className="px-2 py-1 text-xs bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-lg border border-amber-100 dark:border-amber-500/20">
                         {w}
                       </span>

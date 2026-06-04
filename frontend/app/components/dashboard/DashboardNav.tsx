@@ -4,19 +4,19 @@ import { useState } from "react"
 import Link from "next/link"
 import { useTheme } from "next-themes"
 import { motion, AnimatePresence } from "framer-motion"
-import { FaBolt } from "react-icons/fa"
-import { useTranslation, Lang } from "../../../i18n/LanguageProvider"
-import { LearnerProfile } from "./mockData"
+import { GiEarthAfricaEurope } from "react-icons/gi"
+import { useTranslation } from "../../../i18n/LanguageProvider"
 
-const LANGS: { code: Lang; label: string }[] = [
-  { code: "en", label: "EN" },
-  { code: "fr", label: "FR" },
-  { code: "de", label: "DE" },
-  { code: "zh", label: "中" },
-]
+interface ProfileProps {
+  avatarInitials: string
+  displayName: string
+  username: string
+  targetLanguage: string
+  currentLevel: string
+}
 
-export default function DashboardNav({ profile }: { profile: LearnerProfile }) {
-  const { t, lang, setLang } = useTranslation()
+export default function DashboardNav({ profile }: { profile: ProfileProps }) {
+  const { t } = useTranslation()
   const { theme, setTheme } = useTheme()
   const [open, setOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -29,7 +29,7 @@ export default function DashboardNav({ profile }: { profile: LearnerProfile }) {
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 group flex-shrink-0">
               <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shadow-md shadow-indigo-500/30">
-                <FaBolt className="w-4 h-4 text-white" />
+                <GiEarthAfricaEurope className="w-4 h-4 text-white" />
               </div>
               <span className="font-bold text-slate-900 dark:text-white text-lg tracking-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-300 transition-colors">
                 NedLang
@@ -150,26 +150,6 @@ export default function DashboardNav({ profile }: { profile: LearnerProfile }) {
                             >
                               <span>{icon}</span>
                               {t(key)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Language switcher */}
-                      <div className="px-3 py-2 border-t border-slate-100 dark:border-white/8">
-                        <p className="text-xs font-medium text-slate-400 dark:text-gray-500 mb-2 px-1">{t("dash_nav_ui_language")}</p>
-                        <div className="flex gap-1">
-                          {LANGS.map(({ code, label }) => (
-                            <button
-                              key={code}
-                              onClick={() => setLang(code)}
-                              className={`flex-1 py-1.5 text-xs font-medium rounded-lg transition-all ${
-                                lang === code
-                                  ? "bg-indigo-600 text-white"
-                                  : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-slate-600"
-                              }`}
-                            >
-                              {label}
                             </button>
                           ))}
                         </div>

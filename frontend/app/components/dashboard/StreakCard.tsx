@@ -1,7 +1,6 @@
 "use client"
 
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockStreak, heatmapData } from "./mockData"
 
 const HEAT_COLORS = [
   "bg-slate-100 dark:bg-slate-800",
@@ -13,9 +12,14 @@ const HEAT_COLORS = [
 
 const WEEK_DAYS = ["M", "W", "F"]
 
-export default function StreakCard() {
+interface Props {
+  streak: { currentStreak: number; longestStreak: number; totalStudyDays: number; weeklyConsistency: number }
+  heatmapData: number[]
+}
+
+export default function StreakCard({ streak, heatmapData }: Props) {
   const { t } = useTranslation()
-  const { currentStreak, longestStreak, totalStudyDays, weeklyConsistency } = mockStreak
+  const { currentStreak, longestStreak, totalStudyDays, weeklyConsistency } = streak
 
   const stats = [
     { valueKey: currentStreak, labelKey: "dash_streak_current", accent: true },
@@ -65,7 +69,7 @@ export default function StreakCard() {
               {[0, 1, 2, 3, 4, 5, 6].map((d) => (
                 <div key={d} className="w-3 h-3 flex items-center justify-center">
                   <span className="text-[8px] text-slate-400">
-                    {d === 0 ? "M" : d === 2 ? "W" : d === 4 ? "F" : ""}
+                    {d === 0 ? t("dash_streak_day_mon") : d === 2 ? t("dash_streak_day_wed") : d === 4 ? t("dash_streak_day_fri") : ""}
                   </span>
                 </div>
               ))}

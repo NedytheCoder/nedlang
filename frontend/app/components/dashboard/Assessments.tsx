@@ -2,7 +2,6 @@
 
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockAssessments } from "./mockData"
 
 function ScoreBadge({ score }: { score: number }) {
   const color = score >= 85 ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10" :
@@ -13,7 +12,11 @@ function ScoreBadge({ score }: { score: number }) {
   )
 }
 
-export default function Assessments() {
+interface Props {
+  assessments: { upcoming: any[]; history: any[] }
+}
+
+export default function Assessments({ assessments }: Props) {
   const { t } = useTranslation()
 
   return (
@@ -36,7 +39,7 @@ export default function Assessments() {
           </motion.button>
         </div>
         <div className="space-y-2">
-          {mockAssessments.upcoming.map((a, i) => (
+          {assessments.upcoming.map((a, i) => (
             <div key={i} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800 rounded-xl">
               <div className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0" />
               <div className="flex-1 min-w-0">
@@ -63,7 +66,7 @@ export default function Assessments() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-white/6">
-              {mockAssessments.history.map((r, i) => (
+              {assessments.history.map((r, i) => (
                 <tr key={i}>
                   <td className="py-2 text-slate-600 dark:text-gray-400">{r.date}</td>
                   <td className="py-2 text-slate-700 dark:text-gray-300">{t(r.typeKey)}</td>

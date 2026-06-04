@@ -110,6 +110,66 @@ def drop_database() -> None:
         conn.close()
 
 
+# ─── Seed data (continued) ───────────────────────────────────────────────────
+
+# XP level bands — (level_no, label, xp_required, xp_to_next)
+# Designed so that xp=8240 lands in level 5 (7000–10000), matching mock data.
+_XP_LEVELS: list[tuple[int, str, int, int | None]] = [
+    (1,  "Novice",            0,      1000),
+    (2,  "Beginner",          1000,   1500),
+    (3,  "Elementary",        2500,   2000),
+    (4,  "Pre-Intermediate",  4500,   2500),
+    (5,  "Intermediate",      7000,   3000),
+    (6,  "Upper-Intermediate",10000,  3500),
+    (7,  "Advanced",          13500,  4500),
+    (8,  "Proficient",        18000,  6000),
+    (9,  "Expert",            24000,  8000),
+    (10, "Master",            32000,  None),
+]
+
+# Achievements — (name, description, xp_reward)
+_ACHIEVEMENTS: list[tuple[str, str, int]] = [
+    # ── Firsts ────────────────────────────────────────────────────────────────
+    ("first_lesson",          "Complete your first lesson",                           50),
+    ("first_convo",           "Complete your first conversation",                     50),
+    ("first_assessment",      "Complete your first assessment",                       50),
+
+    # ── Vocabulary ────────────────────────────────────────────────────────────
+    ("hundred_words",         "Learn 100 vocabulary words",                           100),
+    ("vocab_explorer",        "Learn 500 vocabulary words",                           200),
+    ("vocab_master",          "Learn 1000 vocabulary words",                          500),
+
+    # ── Streaks ───────────────────────────────────────────────────────────────
+    ("streak_3",              "Study 3 days in a row",                                50),
+    ("streak_7",              "Study 7 days in a row",                                100),
+    ("streak_30",             "Study 30 days in a row",                               500),
+    ("streak_100",            "Study 100 days in a row",                              1000),
+
+    # ── Grammar ───────────────────────────────────────────────────────────────
+    ("grammar_master",        "Master 10 grammar topics",                             200),
+    ("grammar_expert",        "Master 25 grammar topics",                             500),
+
+    # ── Skills ────────────────────────────────────────────────────────────────
+    ("listening_specialist",  "Complete 20 listening exercises",                      200),
+    ("reading_specialist",    "Complete 20 reading exercises",                        200),
+    ("writing_specialist",    "Complete 20 writing exercises",                        200),
+    ("speaking_specialist",   "Complete 20 speaking exercises",                       200),
+
+    # ── Assessments ───────────────────────────────────────────────────────────
+    ("assessment_champion",   "Complete 5 assessments",                               200),
+    ("perfect_score",         "Score 100% on any assessment",                         500),
+
+    # ── Levels ────────────────────────────────────────────────────────────────
+    ("level_up",              "Reach app level 5 (Intermediate)",                     200),
+    ("framework_advance",     "Advance one full framework level (e.g. A1 → A2)",      300),
+
+    # ── Study time ────────────────────────────────────────────────────────────
+    ("ten_hours",             "Accumulate 10 hours of study time",                    100),
+    ("fifty_hours",           "Accumulate 50 hours of study time",                    300),
+    ("hundred_hours",         "Accumulate 100 hours of study time",                   500),
+]
+
+
 # ─── Seed helpers ─────────────────────────────────────────────────────────────
 
 def seed_languages(conn: sqlite3.Connection) -> None:
@@ -145,6 +205,26 @@ def seed_motivations(conn: sqlite3.Connection) -> None:
     print(f"[db] Motivations seeded ({len(_MOTIVATIONS)} rows)")
 
 
+def seed_xp_levels(conn: sqlite3.Connection) -> None:
+    """
+    Insert XP level threshold bands.
+    Uses INSERT OR IGNORE so re-running is safe.
+    """
+    sql = "INSERT OR IGNORE INTO xp_levels (level_no, label, xp_required, xp_to_next) VALUES (?, ?, ?, ?)"
+    conn.executemany(sql, _XP_LEVELS)
+    print(f"[db] XP levels seeded ({len(_XP_LEVELS)} rows)")
+
+
+def seed_achievements(conn: sqlite3.Connection) -> None:
+    """
+    Insert the canonical achievement catalog.
+    Uses INSERT OR IGNORE so re-running is safe.
+    """
+    sql = "INSERT OR IGNORE INTO achievements (name, description, xp_reward) VALUES (?, ?, ?)"
+    conn.executemany(sql, _ACHIEVEMENTS)
+    print(f"[db] Achievements seeded ({len(_ACHIEVEMENTS)} rows)")
+
+
 # ─── Initialization ───────────────────────────────────────────────────────────
 
 def initialize_database() -> None:
@@ -152,28 +232,27 @@ def initialize_database() -> None:
     Full first-run setup:
 
     1. Open connection to lingua_ai.db (creates file if absent)
-    2. Create all tables
-    3. Create all indexes
-    4. Seed languages
-    5. Seed hobbies
-    6. Commit
-    7. Close connection
+    2. Create all tables + indexes, migrate any missing columns
+    3. Seed reference data (languages, hobbies, motivations, xp_levels, achievements)
+    4. Commit and close
     """
     print(f"[db] Initializing database at {DB_PATH}")
     conn = get_connection()
     try:
-        create_tables(conn)          # step 2 + 3
-        seed_languages(conn)         # step 4
-        seed_hobbies(conn)           # step 5
-        seed_motivations(conn)       # step 6
-        conn.commit()                # step 7
+        create_tables(conn)
+        seed_languages(conn)
+        seed_hobbies(conn)
+        seed_motivations(conn)
+        seed_xp_levels(conn)
+        seed_achievements(conn)
+        conn.commit()
         print("[db] Initialization complete.")
     except Exception as exc:
         conn.rollback()
         print(f"[db] Initialization failed: {exc}")
         raise
     finally:
-        conn.close()                 # step 7
+        conn.close()
 
 
 # ─── CLI entry point ──────────────────────────────────────────────────────────

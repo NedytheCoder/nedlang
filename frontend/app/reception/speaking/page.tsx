@@ -102,11 +102,16 @@ export default function SpeakingPage() {
     if (isFinal) {
       console.log("Speaking responses:", updatedResponses)
       sessionStorage.setItem("speaking_questions", JSON.stringify(questionsRef.current))
-      sessionStorage.setItem(
-        "speaking_responses",
-        JSON.stringify(updatedResponses.map((r) => ({ questionId: r.questionId, duration_seconds: r.duration_seconds })))
-      )
-      router.push("/dashboard")
+      try {
+        sessionStorage.setItem("speaking_responses", JSON.stringify(updatedResponses))
+      } catch {
+        // Quota exceeded — store without audio bytes; speaking grading will skip transcription
+        sessionStorage.setItem(
+          "speaking_responses",
+          JSON.stringify(updatedResponses.map((r) => ({ questionId: r.questionId, audio_b64: "", duration_seconds: r.duration_seconds })))
+        )
+      }
+      router.push("/reception/grading")
       return
     }
 

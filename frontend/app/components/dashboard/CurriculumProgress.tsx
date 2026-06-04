@@ -2,7 +2,14 @@
 
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
-import { mockCurriculum, CurriculumModule } from "./mockData"
+
+export interface CurriculumModule {
+  id: number
+  title: string
+  status: "completed" | "current" | "locked"
+  lessons: number
+  completedLessons: number
+}
 
 const STATUS_STYLES: Record<CurriculumModule["status"], { icon: string; ring: string; bg: string; text: string }> = {
   completed: { icon: "✓", ring: "ring-2 ring-emerald-400", bg: "bg-emerald-400", text: "text-emerald-600 dark:text-emerald-400" },
@@ -10,12 +17,16 @@ const STATUS_STYLES: Record<CurriculumModule["status"], { icon: string; ring: st
   locked:    { icon: "🔒", ring: "ring-1 ring-slate-200 dark:ring-slate-700", bg: "bg-slate-200 dark:bg-slate-700", text: "text-slate-400 dark:text-gray-500" },
 }
 
-export default function CurriculumProgress() {
+interface Props {
+  curriculum: CurriculumModule[]
+}
+
+export default function CurriculumProgress({ curriculum }: Props) {
   const { t } = useTranslation()
 
-  const completedCount = mockCurriculum.filter((m) => m.status === "completed").length
-  const totalLessons = mockCurriculum.reduce((s, m) => s + m.lessons, 0)
-  const completedLessons = mockCurriculum.reduce((s, m) => s + m.completedLessons, 0)
+  const completedCount = curriculum.filter((m) => m.status === "completed").length
+  const totalLessons = curriculum.reduce((s, m) => s + m.lessons, 0)
+  const completedLessons = curriculum.reduce((s, m) => s + m.completedLessons, 0)
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/8 rounded-2xl p-5 sm:p-6">
@@ -35,7 +46,7 @@ export default function CurriculumProgress() {
         <div className="absolute left-5 top-5 bottom-5 w-0.5 bg-slate-200 dark:bg-slate-700" />
 
         <div className="space-y-3">
-          {mockCurriculum.map((module, i) => {
+          {curriculum.map((module, i) => {
             const style = STATUS_STYLES[module.status]
             const pct = module.lessons > 0 ? (module.completedLessons / module.lessons) * 100 : 0
 
