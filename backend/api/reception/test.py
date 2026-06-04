@@ -34,6 +34,22 @@ class ListeningTestRequest(BaseModel):
     interests: list[str] = []
 
 
+class WritingTestRequest(BaseModel):
+    target_language: str
+    native_language: str
+    framework: str
+    learning_goal: str = ""
+    interests: list[str] = []
+
+
+class SpeakingTestRequest(BaseModel):
+    target_language: str
+    native_language: str
+    framework: str
+    learning_goal: str = ""
+    interests: list[str] = []
+
+
 # ─── Listening question schema ────────────────────────────────────────────────
 
 class ListeningQuestion(BaseModel):
@@ -262,6 +278,141 @@ OUTPUT RULES:
     )
     return system, user
 
+# ─── Writing prompt builder ──────────────────────────────────────────────────
+
+def _build_writing_prompts(
+    framework: str,
+    target: str,
+    native: str,
+    learning_goal: str,
+    interests: str,
+    total: int,
+    dist: str,
+) -> tuple[str, str]:
+    system = f"""You are an expert language assessment engine specialising in written production.
+
+Your task is to generate a placement writing assessment.
+Each question is a self-contained writing task the learner must respond to in {target}.
+
+FRAMEWORK: {framework}
+
+DISTRIBUTION — generate exactly this many tasks per level, in this order:{dist}
+
+LEARNER CONTEXT:
+* Target language : {target}
+* Native language : {native}
+* Learning goal   : {learning_goal}
+* Interests       : {interests}
+
+TASK RULES:
+* Every task_prompt must be written entirely in {target}.
+* Tasks must increase in complexity strictly according to the framework level order above.
+* Vary the task type across the assessment — use a mix of:
+  - Sentence completion or simple description (lower levels)
+  - Short message, text, or social media post (lower-mid levels)
+  - Email, letter, or structured response to a situation (mid levels)
+  - Opinion, argument, or analytical paragraph (upper-mid levels)
+  - Essay, formal report, or critical commentary (upper levels)
+* Where natural, situate tasks within the learner's interests: {interests}.
+* word_count_guide must be appropriate to the level and writing system:
+  - A1/N5/HSK1/TOPIK1 : "20–40 words"  (or "15–30 characters" for logographic scripts)
+  - A2/N4/HSK2/TOPIK2 : "40–70 words"  (or "30–55 characters")
+  - B1/N3/HSK3/TOPIK3 : "70–110 words" (or "55–90 characters")
+  - B2/N2/HSK4/TOPIK4 : "110–160 words"(or "90–130 characters")
+  - C1/N1/HSK5/TOPIK5 : "160–220 words"(or "130–180 characters")
+  - C2/HSK6/TOPIK6    : "220+ words"   (or "180+ characters")
+  Use the character variant for Chinese, Japanese, and Korean; the word variant for all others.
+
+OUTPUT RULES:
+* Return exactly {total} tasks numbered sequentially (question_no 1 → {total}).
+* Wrap the array in a JSON object: {{"questions": [ ... ]}}
+* Each object must contain exactly these keys:
+  question_no, question_level, task_prompt, word_count_guide.
+* task_prompt is the full task description — include any scenario, stimulus, or instructions
+  the learner needs. Do not split them across separate fields.
+* word_count_guide is a short string such as "40–70 words" or "30–55 characters".
+* Do not return options. Do not return a correct answer. Do not return markdown.
+* Return only valid JSON."""
+
+    user = (
+        f"Generate the {framework} placement writing assessment for a {native} speaker "
+        f"learning {target}. "
+        f"All task prompts must be written entirely in {target}. "
+        f"Follow the exact distribution. "
+        f"Return only the JSON object with the questions array."
+    )
+    return system, user
+
+# ─── Speaking prompt builder ─────────────────────────────────────────────────
+
+def _build_speaking_prompts(
+    framework: str,
+    target: str,
+    native: str,
+    learning_goal: str,
+    interests: str,
+    total: int,
+    dist: str,
+) -> tuple[str, str]:
+    system = f"""You are an expert language assessment engine specialising in spoken production.
+
+Your task is to generate a placement speaking assessment.
+Each question is a self-contained speaking task the learner must respond to aloud in {target}.
+
+FRAMEWORK: {framework}
+
+DISTRIBUTION — generate exactly this many tasks per level, in this order:{dist}
+
+LEARNER CONTEXT:
+* Target language : {target}
+* Native language : {native}
+* Learning goal   : {learning_goal}
+* Interests       : {interests}
+
+TASK RULES:
+* Every task_prompt must be written entirely in {target}.
+* Tasks must increase in complexity strictly according to the framework level order above.
+* Vary the task type across the assessment — use a mix of:
+  - Simple personal questions (name, preferences, daily life) — lower levels
+  - Describe a situation, image, or routine — lower-mid levels
+  - Express and justify an opinion on a familiar topic — mid levels
+  - Discuss an abstract or hypothetical scenario — upper-mid levels
+  - Analyse, debate, or present a nuanced argument — upper levels
+* Where natural, situate tasks within the learner's interests: {interests}.
+* prep_time_seconds is the thinking time the learner gets before speaking:
+  - A1/N5/HSK1/TOPIK1 : 15
+  - A2/N4/HSK2/TOPIK2 : 20
+  - B1/N3/HSK3/TOPIK3 : 30
+  - B2/N2/HSK4/TOPIK4 : 45
+  - C1/N1/HSK5/TOPIK5 : 60
+  - C2/HSK6/TOPIK6    : 60
+* response_time_seconds is the maximum recording time:
+  - A1/N5/HSK1/TOPIK1 : 30
+  - A2/N4/HSK2/TOPIK2 : 45
+  - B1/N3/HSK3/TOPIK3 : 60
+  - B2/N2/HSK4/TOPIK4 : 90
+  - C1/N1/HSK5/TOPIK5 : 120
+  - C2/HSK6/TOPIK6    : 120
+
+OUTPUT RULES:
+* Return exactly {total} tasks numbered sequentially (question_no 1 → {total}).
+* Wrap the array in a JSON object: {{"questions": [ ... ]}}
+* Each object must contain exactly these keys:
+  question_no, question_level, task_prompt, prep_time_seconds, response_time_seconds
+* task_prompt is the full task description — everything the learner needs to know to respond.
+* prep_time_seconds and response_time_seconds are integers.
+* Do not return options. Do not return a correct answer. Do not return markdown.
+* Return only valid JSON."""
+
+    user = (
+        f"Generate the {framework} placement speaking assessment for a {native} speaker "
+        f"learning {target}. "
+        f"All task prompts must be written entirely in {target}. "
+        f"Follow the exact distribution. "
+        f"Return only the JSON object with the questions array."
+    )
+    return system, user
+
 # ─── OpenAI service layer ─────────────────────────────────────────────────────
 
 def _call_openai(system_prompt: str, user_prompt: str) -> list:
@@ -315,6 +466,14 @@ def reading_health():
 @router.get("/listening")
 def listening_health():
     return {"message": "Hello from Listening Test API"}
+
+@router.get("/writing")
+def writing_health():
+    return {"message": "Hello from Writing Test API"}
+
+@router.get("/speaking")
+def speaking_health():
+    return {"message": "Hello from Speaking Test API"}
 
 # ─── Reading questions ────────────────────────────────────────────────────────
 
@@ -370,6 +529,66 @@ async def listening_questions(req: ListeningTestRequest):
     try:
         raw_questions = _call_openai(system_prompt, user_prompt)
         return await _attach_audio(raw_questions, req.target_language)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"Invalid JSON from OpenAI: {exc}") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+# ─── Writing questions ────────────────────────────────────────────────────────
+
+@router.post("/writing_questions")
+def writing_questions(req: WritingTestRequest):
+    """
+    Generate a placement writing assessment.
+
+    Returns a JSON array of writing tasks distributed across framework levels.
+    Each task has a prompt and a word/character count guide — no options, no correct answer.
+    """
+    framework = _validate_framework(req.framework)
+    target    = _lang_name(req.target_language)
+    native    = _lang_name(req.native_language)
+    total     = _total_questions(framework)
+    dist      = _build_distribution_block(framework)
+    interests = ", ".join(req.interests) if req.interests else "general topics"
+
+    system_prompt, user_prompt = _build_writing_prompts(
+        framework, target, native, req.learning_goal, interests, total, dist
+    )
+
+    try:
+        return _call_openai(system_prompt, user_prompt)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail=f"Invalid JSON from OpenAI: {exc}") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+# ─── Speaking questions ───────────────────────────────────────────────────────
+
+@router.post("/speaking_questions")
+def speaking_questions(req: SpeakingTestRequest):
+    """
+    Generate a placement speaking assessment.
+
+    Returns a JSON array of speaking tasks distributed across framework levels.
+    Each task has a prompt, a prep time, and a max response time — no options, no correct answer.
+    """
+    framework = _validate_framework(req.framework)
+    target    = _lang_name(req.target_language)
+    native    = _lang_name(req.native_language)
+    total     = _total_questions(framework)
+    dist      = _build_distribution_block(framework)
+    interests = ", ".join(req.interests) if req.interests else "general topics"
+
+    system_prompt, user_prompt = _build_speaking_prompts(
+        framework, target, native, req.learning_goal, interests, total, dist
+    )
+
+    try:
+        return _call_openai(system_prompt, user_prompt)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail=f"Invalid JSON from OpenAI: {exc}") from exc
     except HTTPException:

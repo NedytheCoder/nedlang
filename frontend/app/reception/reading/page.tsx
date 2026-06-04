@@ -67,6 +67,7 @@ export default function ReadingPage() {
       .then((data: Question[]) => {
         if (!Array.isArray(data) || data.length === 0) { setPageState("error"); return }
         questionsRef.current = data
+        console.log("Reading questions:", data)
         setLoadProgress(100)
         setTimeout(() => {
           setQuestions(data)
@@ -91,7 +92,6 @@ export default function ReadingPage() {
 
     const isFinal = currentIndex === questions.length - 1
     if (isFinal) {
-      console.log("Reading questions:", questionsRef.current)
       console.log("Reading responses:", updatedResponses)
       sessionStorage.setItem("reading_questions", JSON.stringify(questionsRef.current))
       sessionStorage.setItem("reading_responses", JSON.stringify(updatedResponses))
@@ -190,8 +190,8 @@ export default function ReadingPage() {
                     ✅
                   </div>
                   <div>
-                    <p className="text-base font-bold text-slate-900 dark:text-white">Reading complete</p>
-                    <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Your responses have been saved.</p>
+                    <p className="text-base font-bold text-slate-900 dark:text-white">{t("assess_read_complete")}</p>
+                    <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">{t("assess_responses_saved")}</p>
                   </div>
                 </motion.div>
               ) : (

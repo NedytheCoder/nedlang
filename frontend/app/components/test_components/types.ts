@@ -21,6 +21,34 @@ export interface ListeningQuestion {
   tts_status: "ready" | "failed"
 }
 
+export interface WritingQuestion {
+  question_no: number
+  question_level: string
+  question_type: string   // "writing_task"
+  task_prompt: string
+  word_count_guide: string
+}
+
+export interface WritingResponse {
+  questionId: string
+  response: string
+}
+
+export interface SpeakingQuestion {
+  question_no: number
+  question_level: string
+  question_type: string   // "speaking_task"
+  task_prompt: string
+  prep_time_seconds: number
+  response_time_seconds: number
+}
+
+export interface SpeakingResponse {
+  questionId: string
+  audio_b64: string
+  duration_seconds: number
+}
+
 export interface AssessmentResponse {
   questionId: string
   selectedAnswer: string

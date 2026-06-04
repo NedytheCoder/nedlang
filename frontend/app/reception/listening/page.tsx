@@ -72,6 +72,7 @@ export default function ListeningPage() {
       .then((data: ListeningQuestion[]) => {
         if (!Array.isArray(data) || data.length === 0) { setPageState("error"); return }
         questionsRef.current = data
+        console.log("Listening questions:", data)
         setLoadProgress(100)
         setTimeout(() => {
           setQuestions(data)
@@ -96,7 +97,6 @@ export default function ListeningPage() {
 
     const isFinal = currentIndex === questions.length - 1
     if (isFinal) {
-      console.log("Listening questions:", questionsRef.current)
       console.log("Listening responses:", updatedResponses)
       sessionStorage.setItem("listening_questions", JSON.stringify(questionsRef.current))
       sessionStorage.setItem("listening_responses", JSON.stringify(updatedResponses))
@@ -115,6 +115,7 @@ export default function ListeningPage() {
         progress={Math.min(loadProgress, 100)}
         messageKeys={LOADING_MESSAGE_KEYS}
         headingKey="assess_listen_loading_heading"
+        icon="🎧"
       />
     )
   }
@@ -196,8 +197,8 @@ export default function ListeningPage() {
                     ✅
                   </div>
                   <div>
-                    <p className="text-base font-bold text-slate-900 dark:text-white">Listening complete</p>
-                    <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">Your responses have been saved.</p>
+                    <p className="text-base font-bold text-slate-900 dark:text-white">{t("assess_listen_complete")}</p>
+                    <p className="text-sm text-slate-500 dark:text-gray-400 mt-1">{t("assess_responses_saved")}</p>
                   </div>
                 </motion.div>
               ) : (

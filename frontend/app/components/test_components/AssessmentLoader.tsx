@@ -18,12 +18,14 @@ interface Props {
   progress: number
   messageKeys?: string[]
   headingKey?: string
+  icon?: string
 }
 
 export default function AssessmentLoader({
   progress,
   messageKeys = DEFAULT_MESSAGE_KEYS,
   headingKey = DEFAULT_HEADING_KEY,
+  icon = "📖",
 }: Props) {
   const { t } = useTranslation()
   const [msgIndex, setMsgIndex] = useState(0)
@@ -65,7 +67,7 @@ export default function AssessmentLoader({
             className="absolute inset-0 rounded-full border-4 border-indigo-200 dark:border-indigo-900 border-t-indigo-600 dark:border-t-indigo-400"
           />
           <div className="absolute inset-3 rounded-full bg-indigo-50 dark:bg-indigo-950 flex items-center justify-center">
-            <span className="text-lg">📖</span>
+            <span className="text-lg">{icon}</span>
           </div>
         </div>
 
