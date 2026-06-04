@@ -17,8 +17,8 @@ export interface ListeningQuestion {
   question: string
   options: string[]
   correct_answer: string
-  audio_url: string | null
-  tts_status: string
+  audio_b64: string
+  tts_status: "ready" | "failed"
 }
 
 export interface AssessmentResponse {

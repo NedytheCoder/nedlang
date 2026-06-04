@@ -1,3 +1,5 @@
+import asyncio
+import base64
 import json
 import os
 from typing import Optional
@@ -83,6 +85,14 @@ _DISTRIBUTIONS: dict[str, list[dict]] = {
     ],
 }
 
+_VOICE_MAP: dict[str, str] = {
+    "fr": "alloy",  "de": "echo",  "es": "nova",  "it": "nova",
+    "pt": "nova",   "zh": "echo",  "ja": "shimmer","ko": "shimmer",
+    "ar": "echo",   "ru": "fable", "nl": "alloy",  "pl": "fable",
+    "sv": "alloy",  "tr": "echo",  "hi": "nova",
+}
+_DEFAULT_VOICE = "alloy"
+
 _LANG_NAMES: dict[str, str] = {
     "en": "English", "fr": "French",   "de": "German",   "es": "Spanish",
     "it": "Italian", "pt": "Portuguese","zh": "Chinese",  "ja": "Japanese",
@@ -93,9 +103,11 @@ _LANG_NAMES: dict[str, str] = {
 
 # ─── Shared helpers ───────────────────────────────────────────────────────────
 
+def _voice_for(language: str) -> str:
+    return _VOICE_MAP.get(language.lower(), _DEFAULT_VOICE)
+
 def _lang_name(code: str) -> str:
     return _LANG_NAMES.get(code.lower(), code)
-
 
 def _build_distribution_block(framework: str) -> str:
     lines = []
@@ -104,10 +116,8 @@ def _build_distribution_block(framework: str) -> str:
         lines.append(f"* {entry['level']} = {n} question{'s' if n > 1 else ''}")
     return "\n".join(lines)
 
-
 def _total_questions(framework: str) -> int:
     return sum(e["count"] for e in _DISTRIBUTIONS[framework])
-
 
 def _unwrap_array(data: object) -> list:
     if isinstance(data, list):
@@ -117,7 +127,6 @@ def _unwrap_array(data: object) -> list:
             if isinstance(v, list):
                 return v
     raise ValueError("OpenAI response did not contain a JSON array.")
-
 
 def _validate_framework(framework: str) -> str:
     fw = framework.upper()
@@ -130,7 +139,6 @@ def _validate_framework(framework: str) -> str:
             ),
         )
     return fw
-
 
 # ─── Reading prompt builder ───────────────────────────────────────────────────
 
@@ -151,8 +159,7 @@ The assessment must follow the framework distribution exactly.
 
 FRAMEWORK: {framework}
 
-DISTRIBUTION — generate exactly this many questions per level, in this order:
-{dist}
+DISTRIBUTION — generate exactly this many questions per level, in this order:{dist}
 
 LEARNER CONTEXT:
 * Target language : {target}
@@ -186,7 +193,6 @@ OUTPUT RULES:
     )
     return system, user
 
-
 # ─── Listening prompt builder ─────────────────────────────────────────────────
 
 def _build_listening_prompts(
@@ -205,8 +211,7 @@ Each question consists of an authentic spoken-language transcript paired with a 
 
 FRAMEWORK: {framework}
 
-DISTRIBUTION — generate exactly this many questions per level, in this order:
-{dist}
+DISTRIBUTION — generate exactly this many questions per level, in this order:{dist}
 
 LEARNER CONTEXT:
 * Target language : {target}
@@ -235,15 +240,14 @@ QUESTION RULES:
 * Test: main idea, specific detail, inference, speaker attitude, or vocabulary in context.
 * Multiple choice only — four options per question (A, B, C, D).
 * Exactly one correct answer per question.
-* Write the comprehension question in {native} so the learner understands what to listen for.
+* Write the comprehension question and all four options entirely in {target}.
 
 OUTPUT RULES:
 * Return exactly {total} questions numbered sequentially (question_no 1 → {total}).
 * Wrap the array in a JSON object: {{"questions": [ ... ]}}
 * Each object must contain exactly these keys:
-  question_no, question_level, question_type, question_skill, transcript, question, options, correct_answer
+  question_no, question_level, question_type, transcript, question, options, correct_answer
 * question_type is always "listening_mcq".
-* question_skill is always "listening".
 * options is an array of 4 strings — full text, no letter prefix.
 * correct_answer is the letter of the correct option: "A", "B", "C", or "D".
 * Do not return markdown. Do not return explanations. Return only valid JSON."""
@@ -252,12 +256,11 @@ OUTPUT RULES:
         f"Generate the {framework} placement listening assessment for a {native} speaker "
         f"learning {target}. "
         f"All transcripts must be authentic natural {target} speech. "
-        f"Comprehension questions must be in {native}. "
+        f"Comprehension questions and all options must be in {target}. "
         f"Follow the exact distribution. "
         f"Return only the JSON object with the questions array."
     )
     return system, user
-
 
 # ─── OpenAI service layer ─────────────────────────────────────────────────────
 
@@ -277,27 +280,31 @@ def _call_openai(system_prompt: str, user_prompt: str) -> list:
     data = json.loads(raw)
     return _unwrap_array(data)
 
+# ─── TTS helpers ──────────────────────────────────────────────────────────────
 
-# ─── TTS service interface (future integration point) ─────────────────────────
-#
-# Future flow:
-#   transcript -> TTS provider -> audio file -> storage -> audio_url
-#
-# To integrate a provider (OpenAI TTS, ElevenLabs, Azure Speech, etc.):
-#   1. Implement _generate_audio(transcript: str, level: str) -> str  (returns audio_url)
-#   2. Call it here and set tts_status = "ready" / "failed" accordingly
-#   3. No other changes to the endpoint or schema are required.
+async def _generate_audio_b64(transcript: str, language: str) -> str:
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(
+        None,
+        lambda: client.audio.speech.create(
+            model="tts-1",
+            voice=_voice_for(language),
+            input=transcript,
+        ),
+    )
+    return base64.b64encode(response.content).decode("utf-8")
 
-def _attach_tts_placeholders(questions: list) -> list[dict]:
-    result = []
-    for q in questions:
-        result.append({
-            **q,
-            "audio_url": None,    # populated once TTS is integrated
-            "tts_status": "pending",
-        })
-    return result
 
+async def _attach_audio(questions: list, language: str) -> list[dict]:
+    tasks = [_generate_audio_b64(q["transcript"], language) for q in questions]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    output = []
+    for q, result in zip(questions, results):
+        if isinstance(result, Exception):
+            output.append({**q, "audio_b64": "", "tts_status": "failed"})
+        else:
+            output.append({**q, "audio_b64": result, "tts_status": "ready"})
+    return output
 
 # ─── Health endpoints ─────────────────────────────────────────────────────────
 
@@ -305,11 +312,9 @@ def _attach_tts_placeholders(questions: list) -> list[dict]:
 def reading_health():
     return {"message": "Hello from Reading Test API"}
 
-
 @router.get("/listening")
 def listening_health():
     return {"message": "Hello from Listening Test API"}
-
 
 # ─── Reading questions ────────────────────────────────────────────────────────
 
@@ -340,17 +345,16 @@ def reading_questions(req: ReadingTestRequest):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-
 # ─── Listening questions ──────────────────────────────────────────────────────
 
 @router.post("/listening_questions")
-def listening_questions(req: ListeningTestRequest):
+async def listening_questions(req: ListeningTestRequest):
     """
-    Generate a placement listening assessment.
+    Generate a placement listening assessment with embedded audio.
 
     Returns a JSON array of listening questions, each with an authentic spoken-language
-    transcript, a comprehension question, four options, and TTS placeholders ready
-    for future audio generation.
+    transcript, a comprehension question, four options, and base64-encoded MP3 audio
+    generated in parallel via OpenAI TTS.
     """
     framework = _validate_framework(req.framework)
     target    = _lang_name(req.target_language)
@@ -365,7 +369,7 @@ def listening_questions(req: ListeningTestRequest):
 
     try:
         raw_questions = _call_openai(system_prompt, user_prompt)
-        return _attach_tts_placeholders(raw_questions)
+        return await _attach_audio(raw_questions, req.target_language)
     except json.JSONDecodeError as exc:
         raise HTTPException(status_code=502, detail=f"Invalid JSON from OpenAI: {exc}") from exc
     except HTTPException:
