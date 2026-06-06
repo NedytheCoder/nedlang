@@ -13,6 +13,7 @@ Public API
     initialize_database()  → None   (full first-run setup)
 """
 
+import json
 import sqlite3
 import os
 from database.schema import create_tables, drop_tables
@@ -170,6 +171,162 @@ _ACHIEVEMENTS: list[tuple[str, str, int]] = [
 ]
 
 
+# ─── French A1 curriculum ─────────────────────────────────────────────────────
+
+# (module_order, title, description, total_lessons)
+_FRENCH_A1_MODULES: list[tuple[int, str, str, int]] = [
+    (1,  "Sounds and Letters",              "Master the French alphabet, pronunciation, and accent marks",    4),
+    (2,  "Core Grammar Foundations",        "Learn subject pronouns, sentence structure, être and avoir",    4),
+    (3,  "Numbers, Time, and Identity",     "Numbers, dates, time, nationalities, and occupations",          5),
+    (4,  "Nouns and Articles",              "Gender, definite and indefinite articles, and plurals",          4),
+    (5,  "Adjectives",                      "Descriptive adjectives, agreement, and possessives",             3),
+    (6,  "Verbs",                           "Regular -er/-ir/-re verbs and key irregular verbs",              6),
+    (7,  "Questions and Negation",          "Negation, interrogatives, question forms, and opinions",         4),
+    (8,  "Modifiers",                       "Prepositions, adverbs, and object pronouns",                    3),
+    (9,  "Past and Future Tenses",          "Introduction to passé composé and futur proche",                2),
+    (10, "Communication in the Real World", "Self-introduction, family, routines, and written expression",   7),
+]
+
+# (unit, lesson_order, topic, skill_focus, learning_objectives)
+_FRENCH_A1_NODES: list[tuple[int, int, str, list, list]] = [
+    (1,  1,  "Alphabet",
+        ["phonetics"],
+        ["Recognize all 26 French letters", "Understand basic French pronunciation rules"]),
+    (1,  2,  "Pronunciation",
+        ["pronunciation"],
+        ["Pronounce basic French sounds correctly", "Identify key differences from English pronunciation"]),
+    (1,  3,  "French accents and special characters",
+        ["phonetics"],
+        ["Recognize and write accents (é, è, ê, à, ù, ç)", "Understand how accents affect pronunciation"]),
+    (1,  4,  "Basic greetings and introductions",
+        ["speaking", "vocabulary"],
+        ["Use common greetings in context", "Introduce yourself in French"]),
+
+    (2,  5,  "Subject pronouns",
+        ["grammar"],
+        ["Identify and use je, tu, il, elle, nous, vous, ils, elles", "Match pronouns to people and contexts"]),
+    (2,  6,  "Basic sentence structure",
+        ["grammar"],
+        ["Form simple subject-verb sentences", "Understand French word order"]),
+    (2,  7,  "Être",
+        ["grammar"],
+        ["Conjugate être in the present tense", "Use être to describe identity and state"]),
+    (2,  8,  "Avoir",
+        ["grammar"],
+        ["Conjugate avoir in the present tense", "Use avoir in common expressions"]),
+
+    (3,  9,  "Numbers 0–100",
+        ["vocabulary"],
+        ["Count from 0 to 100 in French", "Use numbers in everyday contexts"]),
+    (3,  10, "Days, months, dates",
+        ["vocabulary"],
+        ["Name the days of the week and months", "Express dates in French"]),
+    (3,  11, "Time expressions",
+        ["vocabulary", "grammar"],
+        ["Tell the time in French", "Use common time phrases"]),
+    (3,  12, "Nationalities",
+        ["vocabulary"],
+        ["Name nationalities in French", "Apply gender agreement to nationality adjectives"]),
+    (3,  13, "Occupations",
+        ["vocabulary"],
+        ["Name common occupations in French", "Talk about what you or others do for work"]),
+
+    (4,  14, "Gender of nouns",
+        ["grammar"],
+        ["Identify masculine and feminine nouns", "Apply gender rules to new vocabulary"]),
+    (4,  15, "Definite articles",
+        ["grammar"],
+        ["Use le, la, les correctly", "Understand when to use definite articles"]),
+    (4,  16, "Indefinite articles",
+        ["grammar"],
+        ["Use un, une, des correctly", "Distinguish between definite and indefinite articles"]),
+    (4,  17, "Plurals",
+        ["grammar"],
+        ["Form regular noun plurals", "Recognize common irregular plurals"]),
+
+    (5,  18, "Adjectives",
+        ["grammar", "vocabulary"],
+        ["Use common descriptive adjectives", "Place adjectives correctly in sentences"]),
+    (5,  19, "Agreement of adjectives",
+        ["grammar"],
+        ["Apply gender and number agreement to adjectives", "Recognize adjective endings for masculine and feminine"]),
+    (5,  20, "Possessive adjectives",
+        ["grammar"],
+        ["Use mon, ma, mes, ton, ta, tes, son, sa, ses correctly", "Express possession in French"]),
+
+    (6,  21, "Regular -er verbs",
+        ["grammar"],
+        ["Conjugate regular -er verbs in the present tense", "Use common -er verbs in sentences"]),
+    (6,  22, "Regular -ir verbs",
+        ["grammar"],
+        ["Conjugate regular -ir verbs in the present tense", "Distinguish -ir from -er verb patterns"]),
+    (6,  23, "Regular -re verbs",
+        ["grammar"],
+        ["Conjugate regular -re verbs in the present tense", "Use common -re verbs correctly"]),
+    (6,  24, "Aller",
+        ["grammar"],
+        ["Conjugate aller in the present tense", "Use aller to express going and movement"]),
+    (6,  25, "Faire",
+        ["grammar"],
+        ["Conjugate faire in the present tense", "Use faire in common idiomatic expressions"]),
+    (6,  26, "Common irregular verbs",
+        ["grammar"],
+        ["Recognize and conjugate key irregular verbs", "Use irregular verbs in everyday sentences"]),
+
+    (7,  27, "Negation (ne...pas)",
+        ["grammar"],
+        ["Form negative sentences using ne...pas", "Apply negation to different verb types"]),
+    (7,  28, "Interrogatives",
+        ["grammar"],
+        ["Use qui, que, où, quand, pourquoi, comment", "Form questions with interrogative words"]),
+    (7,  29, "Question forms",
+        ["grammar", "speaking"],
+        ["Ask questions using inversion and est-ce que", "Choose the appropriate question structure"]),
+    (7,  30, "Preferences and opinions",
+        ["speaking", "vocabulary"],
+        ["Express likes and dislikes in French", "Give simple opinions using aimer, préférer, détester"]),
+
+    (8,  31, "Prepositions",
+        ["grammar"],
+        ["Use common prepositions of place and time", "Choose correct prepositions with transport and location"]),
+    (8,  32, "Adverbs",
+        ["grammar"],
+        ["Use common frequency and manner adverbs", "Position adverbs correctly in sentences"]),
+    (8,  33, "Object pronouns",
+        ["grammar"],
+        ["Use direct object pronouns le, la, les", "Position object pronouns correctly in simple sentences"]),
+
+    (9,  34, "Passé composé introduction",
+        ["grammar"],
+        ["Form the passé composé with avoir", "Use passé composé to talk about past events"]),
+    (9,  35, "Futur proche",
+        ["grammar"],
+        ["Form the futur proche with aller + infinitive", "Use futur proche to talk about near-future plans"]),
+
+    (10, 36, "Self-introduction",
+        ["speaking"],
+        ["Introduce yourself with name, age, origin, and occupation", "Hold a short introductory conversation"]),
+    (10, 37, "Family and friends",
+        ["speaking", "vocabulary"],
+        ["Name family members in French", "Describe relationships and talk about people you know"]),
+    (10, 38, "Routines",
+        ["speaking", "vocabulary"],
+        ["Describe daily routines using reflexive verbs", "Talk about habitual activities"]),
+    (10, 39, "Short messages",
+        ["writing"],
+        ["Write a simple text message or note in French", "Use appropriate informal register"]),
+    (10, 40, "Simple paragraphs",
+        ["writing"],
+        ["Write 3–5 sentence paragraphs on familiar topics", "Connect sentences using simple connectors"]),
+    (10, 41, "Talking about plans",
+        ["speaking", "grammar"],
+        ["Express future intentions using futur proche", "Discuss plans with a partner or in writing"]),
+    (10, 42, "Past experiences",
+        ["speaking", "grammar"],
+        ["Describe a simple past event using passé composé", "Talk about things you have done"]),
+]
+
+
 # ─── Seed helpers ─────────────────────────────────────────────────────────────
 
 def seed_languages(conn: sqlite3.Connection) -> None:
@@ -225,6 +382,70 @@ def seed_achievements(conn: sqlite3.Connection) -> None:
     print(f"[db] Achievements seeded ({len(_ACHIEVEMENTS)} rows)")
 
 
+def seed_french_curriculum(conn: sqlite3.Connection) -> None:
+    """
+    Seed curriculum_modules and curriculum_nodes for French A1.
+    Uses INSERT OR IGNORE — safe to re-run at any time.
+    """
+    lang_row = conn.execute(
+        "SELECT id FROM languages WHERE code = 'fr'"
+    ).fetchone()
+    if lang_row is None:
+        raise RuntimeError("French language row not found — run seed_languages first.")
+    lang_id: int = lang_row["id"]
+
+    # ── Modules ───────────────────────────────────────────────────────────────
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO curriculum_modules
+            (language_id, framework, level, module_order, title, description, total_lessons)
+        VALUES (?, 'CEFR', 'A1', ?, ?, ?, ?)
+        """,
+        [(lang_id, order, title, desc, total) for order, title, desc, total in _FRENCH_A1_MODULES],
+    )
+
+    # Build unit → module_id map (needed for nodes FK)
+    module_rows = conn.execute(
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        (lang_id,),
+    ).fetchall()
+    unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
+
+    # ── Nodes ─────────────────────────────────────────────────────────────────
+    rows = []
+    for unit, lesson_order, topic, skill_focus, objectives in _FRENCH_A1_NODES:
+        module_id = unit_to_module_id[unit]
+        rows.append((
+            lang_id,
+            module_id,
+            lesson_order,
+            topic,
+            json.dumps(skill_focus),
+            json.dumps([]),           # prerequisites — empty for now
+            json.dumps(objectives),
+        ))
+
+    conn.executemany(
+        """
+        INSERT OR IGNORE INTO curriculum_nodes
+            (language_id, module_id, framework, level, lesson_order, topic,
+             skill_focus, prerequisites, learning_objectives)
+        VALUES (?, ?, 'CEFR', 'A1', ?, ?, ?, ?, ?)
+        """,
+        rows,
+    )
+
+    modules_inserted = conn.execute(
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        (lang_id,)
+    ).fetchone()[0]
+    nodes_inserted = conn.execute(
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        (lang_id,)
+    ).fetchone()[0]
+    print(f"[db] French A1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
+
+
 # ─── Initialization ───────────────────────────────────────────────────────────
 
 def initialize_database() -> None:
@@ -245,6 +466,7 @@ def initialize_database() -> None:
         seed_motivations(conn)
         seed_xp_levels(conn)
         seed_achievements(conn)
+        seed_french_curriculum(conn)
         conn.commit()
         print("[db] Initialization complete.")
     except Exception as exc:

@@ -22,7 +22,12 @@ def _verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8")[:72], hashed.encode("utf-8"))
 
 
-# ─── Request model ────────────────────────────────────────────────────────────
+# ─── Request models ───────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
 
 class RegistrationRequest(BaseModel):
     first_name: str
@@ -102,6 +107,32 @@ def user():
     return {"message": "Hello from User API"}
 
 
+class SetLevelRequest(BaseModel):
+    level: str
+
+
+@router.patch("/{user_id}/level")
+def set_level(user_id: str, req: SetLevelRequest):
+    conn = get_connection()
+    try:
+        row = conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="User not found.")
+        conn.execute(
+            "UPDATE users SET current_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (req.level, user_id),
+        )
+        conn.commit()
+        return {"ok": True, "level": req.level}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
 @router.get("/profile/{user_id}")
 def get_profile(user_id: str, ui_lang: str = Query(default="en")):
     conn = get_connection()
@@ -169,6 +200,21 @@ def check_email(email: str):
             "SELECT 1 FROM users WHERE email = ?", (email.lower(),)
         ).fetchone() is not None
         return {"available": not exists}
+    finally:
+        conn.close()
+
+
+@router.post("/login")
+def login(req: LoginRequest):
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT id, username, email, password_hash FROM users WHERE email = ?",
+            (req.email.lower().strip(),),
+        ).fetchone()
+        if row is None or not _verify_password(req.password, row["password_hash"]):
+            raise HTTPException(status_code=401, detail="Invalid email or password.")
+        return {"id": row["id"], "username": row["username"], "email": row["email"]}
     finally:
         conn.close()
 
@@ -554,7 +600,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         if cur_mod:
             # Prefer the most recently started in-progress lesson in this module
             lesson_row = conn.execute("""
-                SELECT l.id, l.title, l.lesson_order, l.estimated_minutes
+                SELECT l.id, l.node_id, l.title, l.lesson_order, l.estimated_minutes
                 FROM user_lesson_progress ulp
                 JOIN lessons l ON l.id = ulp.lesson_id
                 WHERE ulp.user_id = ? AND l.module_id = ? AND ulp.status = 'in_progress'
@@ -564,7 +610,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             if not lesson_row:
                 # Fall back to the first lesson that hasn't been completed
                 lesson_row = conn.execute("""
-                    SELECT l.id, l.title, l.lesson_order, l.estimated_minutes
+                    SELECT l.id, l.node_id, l.title, l.lesson_order, l.estimated_minutes
                     FROM lessons l
                     WHERE l.user_id = ? AND l.module_id = ?
                       AND l.id NOT IN (
@@ -585,12 +631,27 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                     (user_id, cur_mod["id"])
                 ).fetchone()[0]
                 current_lesson = {
+                    "nodeId":           lesson_row["node_id"],
                     "title":            lesson_row["title"],
                     "module":           cur_mod["title"],
                     "lessonNumber":     completed_in_module + 1,
                     "totalLessons":     max(total_in_module, completed_in_module + 1),
                     "estimatedMinutes": lesson_row["estimated_minutes"] or 15,
                 }
+
+        # ── Next unstarted node ───────────────────────────────────────────────
+        next_node_row = conn.execute("""
+            SELECT cn.id FROM curriculum_nodes cn
+            WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = ?)
+              AND cn.framework   = (SELECT framework FROM users WHERE id = ?)
+              AND cn.id NOT IN (
+                  SELECT l.node_id FROM lessons l
+                  WHERE l.user_id = ? AND l.node_id IS NOT NULL
+              )
+            ORDER BY cn.lesson_order
+            LIMIT 1
+        """, (user_id, user_id, user_id)).fetchone()
+        next_node_id = next_node_row["id"] if next_node_row else None
 
         # ── Error log ─────────────────────────────────────────────────────────
         errors = {
@@ -676,6 +737,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                 "targetLevel":     user["target_level"],
             },
             "currentLesson": current_lesson,
+            "nextNodeId":    next_node_id,
             "streak": {
                 "currentStreak":     current_streak,
                 "longestStreak":     longest_streak,

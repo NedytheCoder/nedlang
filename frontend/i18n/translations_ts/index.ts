@@ -4,6 +4,7 @@ import auth from "./auth"
 import onboarding from "./onboarding"
 import dashboard from "./dashboard"
 import reception from "./reception"
+import lesson from "./lesson"
 
 const LANGS = ["en", "fr", "de", "zh"] as const
 
@@ -16,6 +17,7 @@ for (const lang of LANGS) {
     ...onboarding[lang],
     ...dashboard[lang],
     ...reception[lang],
+    ...lesson[lang],
     ...common[lang],
   }
 }

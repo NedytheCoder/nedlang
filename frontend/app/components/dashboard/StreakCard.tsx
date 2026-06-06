@@ -10,8 +10,6 @@ const HEAT_COLORS = [
   "bg-indigo-800 dark:bg-indigo-300",
 ]
 
-const WEEK_DAYS = ["M", "W", "F"]
-
 interface Props {
   streak: { currentStreak: number; longestStreak: number; totalStudyDays: number; weeklyConsistency: number }
   heatmapData: number[]

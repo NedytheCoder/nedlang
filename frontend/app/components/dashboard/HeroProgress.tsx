@@ -1,15 +1,18 @@
 "use client"
 
+import { useRouter } from "next/navigation"
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
 
 interface Props {
   goal: { title: string; percentComplete: number; targetLevel: string | null }
-  currentLesson: { title: string; module: string; lessonNumber: number; totalLessons: number; estimatedMinutes: number } | null
+  currentLesson: { nodeId: number | null; title: string; module: string; lessonNumber: number; totalLessons: number; estimatedMinutes: number } | null
+  nextNodeId: number | null
 }
 
-export default function HeroProgress({ goal, currentLesson }: Props) {
+export default function HeroProgress({ goal, currentLesson, nextNodeId }: Props) {
   const { t } = useTranslation()
+  const router = useRouter()
   const pct = goal.percentComplete
 
   return (
@@ -94,20 +97,38 @@ export default function HeroProgress({ goal, currentLesson }: Props) {
 
           {/* CTA buttons */}
           <div className="flex flex-col sm:flex-row gap-3">
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="flex-1 py-3 px-5 bg-white text-indigo-700 font-semibold rounded-xl text-sm shadow-lg shadow-black/20 transition-all hover:bg-indigo-50"
-            >
-              ▶ {t("dash_hero_continue")}
-            </motion.button>
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="flex-1 py-3 px-5 bg-white/15 hover:bg-white/25 border border-white/30 text-white font-semibold rounded-xl text-sm transition-all"
-            >
-              + {t("dash_hero_new_lesson")}
-            </motion.button>
+            {currentLesson ? (
+              <>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => currentLesson.nodeId && router.push(`/lesson/${currentLesson.nodeId}`)}
+                  disabled={!currentLesson.nodeId}
+                  className="flex-1 py-3 px-5 bg-white text-indigo-700 font-semibold rounded-xl text-sm shadow-lg shadow-black/20 transition-all hover:bg-indigo-50 disabled:opacity-50"
+                >
+                  ▶ {t("dash_hero_continue")}
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => nextNodeId && router.push(`/lesson/${nextNodeId}`)}
+                  disabled={!nextNodeId}
+                  className="flex-1 py-3 px-5 bg-white/15 hover:bg-white/25 border border-white/30 text-white font-semibold rounded-xl text-sm transition-all disabled:opacity-50"
+                >
+                  + {t("dash_hero_new_lesson")}
+                </motion.button>
+              </>
+            ) : (
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                onClick={() => nextNodeId && router.push(`/lesson/${nextNodeId}`)}
+                disabled={!nextNodeId}
+                className="w-full py-3 px-5 bg-white text-indigo-700 font-semibold rounded-xl text-sm shadow-lg shadow-black/20 transition-all hover:bg-indigo-50 disabled:opacity-50"
+              >
+                ▶ {t("dash_hero_new_lesson")}
+              </motion.button>
+            )}
           </div>
         </div>
       </div>

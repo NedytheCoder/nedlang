@@ -51,7 +51,30 @@ _TABLES: list[str] = [
         title         TEXT    NOT NULL,
         description   TEXT,
         total_lessons INTEGER DEFAULT 0,
-        FOREIGN KEY (language_id) REFERENCES languages (id)
+        FOREIGN KEY (language_id) REFERENCES languages (id),
+        UNIQUE (language_id, framework, level, module_order)
+    )
+    """,
+
+    # ── curriculum_nodes ──────────────────────────────────────────────────────
+    # Individual lesson slots within a module. Language-agnostic: every
+    # supported language's curriculum is stored here, distinguished by
+    # language_id. The lesson endpoint resolves node → prompt via this table.
+    """
+    CREATE TABLE IF NOT EXISTS curriculum_nodes (
+        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        language_id         INTEGER NOT NULL,
+        module_id           INTEGER NOT NULL,
+        framework           TEXT    NOT NULL,
+        level               TEXT    NOT NULL,
+        lesson_order        INTEGER NOT NULL,
+        topic               TEXT    NOT NULL,
+        skill_focus         TEXT    NOT NULL DEFAULT '[]',
+        prerequisites       TEXT    NOT NULL DEFAULT '[]',
+        learning_objectives TEXT    NOT NULL DEFAULT '[]',
+        FOREIGN KEY (language_id) REFERENCES languages          (id),
+        FOREIGN KEY (module_id)   REFERENCES curriculum_modules (id),
+        UNIQUE (language_id, framework, level, lesson_order)
     )
     """,
 
@@ -198,6 +221,7 @@ _TABLES: list[str] = [
         id                TEXT PRIMARY KEY,
         user_id           TEXT NOT NULL,
         module_id         INTEGER,
+        node_id           INTEGER,
         title             TEXT NOT NULL,
         framework         TEXT,
         lesson_level      TEXT,
@@ -207,7 +231,8 @@ _TABLES: list[str] = [
         lesson_json       TEXT NOT NULL,
         generated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id)   REFERENCES users             (id),
-        FOREIGN KEY (module_id) REFERENCES curriculum_modules (id)
+        FOREIGN KEY (module_id) REFERENCES curriculum_modules (id),
+        FOREIGN KEY (node_id)   REFERENCES curriculum_nodes  (id)
     )
     """,
 
@@ -405,10 +430,14 @@ _INDEXES: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_error_log_user            ON error_log              (user_id, error_type)",
     "CREATE INDEX IF NOT EXISTS idx_error_log_reference       ON error_log              (user_id, reference)",
     "CREATE INDEX IF NOT EXISTS idx_curriculum_modules_lang   ON curriculum_modules     (language_id, framework)",
+    "CREATE INDEX IF NOT EXISTS idx_curriculum_nodes_lang     ON curriculum_nodes       (language_id, framework, level)",
+    "CREATE INDEX IF NOT EXISTS idx_curriculum_nodes_module   ON curriculum_nodes       (module_id)",
+    "CREATE INDEX IF NOT EXISTS idx_curriculum_nodes_order    ON curriculum_nodes       (language_id, lesson_order)",
     "CREATE INDEX IF NOT EXISTS idx_conversations_user        ON conversations          (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_scheduled_assessments     ON scheduled_assessments  (user_id, scheduled_at)",
     "CREATE INDEX IF NOT EXISTS idx_achievement_progress_user ON achievement_progress   (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_lessons_module            ON lessons                (module_id)",
+    "CREATE INDEX IF NOT EXISTS idx_lessons_node              ON lessons                (user_id, node_id)",
     "CREATE INDEX IF NOT EXISTS idx_user_lesson_user          ON user_lesson_progress   (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_user_lesson_status        ON user_lesson_progress   (user_id, status)",
     "CREATE INDEX IF NOT EXISTS idx_learning_sessions_date    ON learning_sessions      (user_id, started_at)",
@@ -435,6 +464,7 @@ _DROP_ORDER: list[str] = [
     "assessment_questions",
     "assessments",
     "lessons",
+    "curriculum_nodes",
     "user_hobbies",
     "hobbies",
     "motivations",
@@ -476,6 +506,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
     # ── Column migrations — run before indexes so new columns exist first ──
     _add_column_if_missing(conn, "users",   "target_level",      "TEXT")
     _add_column_if_missing(conn, "lessons", "module_id",         "INTEGER REFERENCES curriculum_modules(id)")
+    _add_column_if_missing(conn, "lessons", "node_id",           "INTEGER REFERENCES curriculum_nodes(id)")
     _add_column_if_missing(conn, "lessons", "estimated_minutes", "INTEGER")
     _add_column_if_missing(conn, "lessons", "lesson_order",      "INTEGER")
 

@@ -30,6 +30,7 @@ export default function ReceptionPage() {
   const [selectedLevel, setSelectedLevel] = useState<string | null>(null)
   const [user, setUser] = useState<ReceptionUser | null>(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const userId = localStorage.getItem("nedlang_user_id")
@@ -68,6 +69,23 @@ export default function ReceptionPage() {
   const framework = FRAMEWORK_DATA[frameworkId]
 
   const canStartImmediately = mode === "manual" && selectedLevel !== null
+
+  const handleManualStart = async () => {
+    if (!selectedLevel) return
+    const userId = localStorage.getItem("nedlang_user_id")
+    if (!userId) return
+    setSaving(true)
+    try {
+      await fetch(`${BACKEND_URL}/user/${userId}/level`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ level: selectedLevel }),
+      })
+    } finally {
+      setSaving(false)
+      router.push("/dashboard")
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -159,14 +177,20 @@ export default function ReceptionPage() {
               <motion.button
                 whileHover={canStartImmediately ? { scale: 1.015 } : {}}
                 whileTap={canStartImmediately ? { scale: 0.985 } : {}}
-                disabled={!canStartImmediately}
+                disabled={!canStartImmediately || saving}
+                onClick={handleManualStart}
                 className={`w-full py-3.5 rounded-xl font-semibold border-2 transition-all text-sm ${
                   canStartImmediately
                     ? "border-indigo-500 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
                     : "border-slate-200 dark:border-white/8 text-slate-400 dark:text-gray-600 cursor-not-allowed"
                 }`}
               >
-                {canStartImmediately ? (
+                {saving ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 rounded-full border-2 border-indigo-400 border-t-transparent animate-spin" />
+                    {t("rec_cta_secondary")}
+                  </span>
+                ) : canStartImmediately ? (
                   <>▶ {t("rec_cta_secondary")} — {selectedLevel}</>
                 ) : (
                   t("rec_cta_secondary")
