@@ -3,9 +3,11 @@
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
 import type { DialogueLine } from "./types"
+import SpeakButton from "./SpeakButton"
 
 interface Props {
   dialogues: DialogueLine[]
+  lang?: string
 }
 
 const SPEAKER_COLORS = [
@@ -20,7 +22,7 @@ function speakerIndex(speaker: string, allSpeakers: string[]): number {
   return idx === -1 ? 0 : idx
 }
 
-export default function DialogueBlock({ dialogues }: Props) {
+export default function DialogueBlock({ dialogues, lang }: Props) {
   const { t } = useTranslation()
 
   if (!dialogues?.length) return null
@@ -70,13 +72,18 @@ export default function DialogueBlock({ dialogues }: Props) {
                   {line.speaker}
                 </span>
                 <div
-                  className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${
+                  className={`px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm flex items-start gap-2 ${
                     isRight
                       ? "bg-indigo-600 text-white rounded-tr-sm"
                       : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-gray-100 rounded-tl-sm"
                   }`}
                 >
-                  {line.line}
+                  <span className="flex-1">{line.line}</span>
+                  <SpeakButton
+                    text={line.line}
+                    lang={lang}
+                    className={isRight ? "text-white/60 hover:text-white hover:bg-white/10" : ""}
+                  />
                 </div>
                 <p className={`text-xs text-slate-400 dark:text-gray-500 px-1 ${isRight ? "text-right" : "text-left"}`}>
                   {line.translation}

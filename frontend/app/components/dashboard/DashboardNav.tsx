@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import { useTheme } from "next-themes"
 import { motion, AnimatePresence } from "framer-motion"
 import { GiEarthAfricaEurope } from "react-icons/gi"
@@ -18,6 +19,7 @@ interface ProfileProps {
 export default function DashboardNav({ profile }: { profile: ProfileProps }) {
   const { t } = useTranslation()
   const { theme, setTheme } = useTheme()
+  const pathname = usePathname()
   const [open, setOpen] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 
@@ -41,16 +43,24 @@ export default function DashboardNav({ profile }: { profile: ProfileProps }) {
               {[
                 { href: "/dashboard", labelKey: "dash_nav_dashboard" },
                 { href: "#", labelKey: "dash_nav_lessons" },
+                { href: "/dashboard/convo", labelKey: "dash_nav_convo" },
                 { href: "#", labelKey: "dash_nav_practice" },
-              ].map(({ href, labelKey }) => (
-                <Link
-                  key={labelKey}
-                  href={href}
-                  className="px-4 py-2 text-sm font-medium rounded-lg text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
-                >
-                  {t(labelKey)}
-                </Link>
-              ))}
+              ].map(({ href, labelKey }) => {
+                const active = href !== "#" && pathname === href
+                return (
+                  <Link
+                    key={labelKey}
+                    href={href}
+                    className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+                      active
+                        ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10"
+                        : "text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {t(labelKey)}
+                  </Link>
+                )
+              })}
             </nav>
 
             {/* Right: profile + mobile menu */}
@@ -201,17 +211,25 @@ export default function DashboardNav({ profile }: { profile: ProfileProps }) {
                 {[
                   { href: "/dashboard", labelKey: "dash_nav_dashboard" },
                   { href: "#", labelKey: "dash_nav_lessons" },
+                  { href: "/dashboard/convo", labelKey: "dash_nav_convo" },
                   { href: "#", labelKey: "dash_nav_practice" },
-                ].map(({ href, labelKey }) => (
-                  <Link
-                    key={labelKey}
-                    href={href}
-                    onClick={() => setMobileOpen(false)}
-                    className="block px-4 py-2.5 text-sm font-medium text-slate-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 rounded-xl transition-colors"
-                  >
-                    {t(labelKey)}
-                  </Link>
-                ))}
+                ].map(({ href, labelKey }) => {
+                  const active = href !== "#" && pathname === href
+                  return (
+                    <Link
+                      key={labelKey}
+                      href={href}
+                      onClick={() => setMobileOpen(false)}
+                      className={`block px-4 py-2.5 text-sm font-medium rounded-xl transition-colors ${
+                        active
+                          ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/10"
+                          : "text-slate-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-indigo-500/10"
+                      }`}
+                    >
+                      {t(labelKey)}
+                    </Link>
+                  )
+                })}
               </nav>
             </motion.div>
           </>

@@ -87,6 +87,28 @@ export default function LessonPage() {
   const [lesson, setLesson] = useState<Lesson | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [completing, setCompleting] = useState(false)
+  const [completion, setCompletion] = useState<{ xp_earned: number; total_xp: number; next_node_id: number | null } | null>(null)
+
+  const handleComplete = async () => {
+    if (!lesson?.node_id) return
+    const userId = localStorage.getItem("nedlang_user_id")
+    if (!userId) return
+    setCompleting(true)
+    try {
+      const res = await fetch(
+        `${BACKEND_URL}/lesson/${lesson.node_id}/complete?user_id=${encodeURIComponent(userId)}`,
+        { method: "POST" }
+      )
+      if (!res.ok) throw new Error()
+      const data = await res.json()
+      setCompletion(data)
+    } catch {
+      // silently ignore — the lesson was still read, completion can be retried
+    } finally {
+      setCompleting(false)
+    }
+  }
 
   useEffect(() => {
     if (!slug) return
@@ -100,7 +122,12 @@ export default function LessonPage() {
     const uiLang = localStorage.getItem("fc_ui_lang") || "en"
 
     fetchLesson(slug, userId, uiLang)
-      .then(setLesson)
+      .then((lesson) => {
+        if (lesson.language_code) {
+          localStorage.setItem("nedlang_target_lang", lesson.language_code)
+        }
+        setLesson(lesson)
+      })
       .catch(() => setError("not_found"))
       .finally(() => setLoading(false))
   }, [slug])
@@ -193,6 +220,65 @@ export default function LessonPage() {
 
       <main>
         <LessonContainer lesson={lesson} />
+
+        {/* ── Completion section ── */}
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+          {completion ? (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-500/30 rounded-2xl p-6 sm:p-8 text-center shadow-lg"
+            >
+              <div className="w-14 h-14 rounded-2xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 flex items-center justify-center mx-auto mb-4">
+                <span className="text-2xl">🎉</span>
+              </div>
+              <h2 className="text-lg font-bold text-slate-900 dark:text-white mb-1">
+                Lesson Complete!
+              </h2>
+              {completion.xp_earned > 0 && (
+                <p className="text-emerald-600 dark:text-emerald-400 font-semibold text-sm mb-5">
+                  +{completion.xp_earned} XP · {completion.total_xp} XP total
+                </p>
+              )}
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => router.push("/dashboard")}
+                  className="px-6 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-gray-200 font-semibold text-sm rounded-xl transition-all"
+                >
+                  ← Back to Dashboard
+                </motion.button>
+                {completion.next_node_id && (
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => router.push(`/lesson/${completion.next_node_id}`)}
+                    className="px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-sm rounded-xl shadow-lg shadow-indigo-500/20 transition-all"
+                  >
+                    Next Lesson →
+                  </motion.button>
+                )}
+              </div>
+            </motion.div>
+          ) : lesson?.session_type !== "revision" ? (
+            <motion.button
+              whileHover={{ scale: 1.01 }}
+              whileTap={{ scale: 0.99 }}
+              onClick={handleComplete}
+              disabled={completing || !lesson?.node_id}
+              className="w-full py-4 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-2xl shadow-lg shadow-indigo-500/20 transition-all disabled:opacity-60 text-sm sm:text-base"
+            >
+              {completing ? "Saving progress…" : "✓ Mark as Complete"}
+            </motion.button>
+          ) : (
+            <div className="text-center py-4">
+              <span className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-700 dark:text-emerald-400 text-sm font-medium rounded-xl">
+                ✓ Already completed — reviewing
+              </span>
+            </div>
+          )}
+        </div>
       </main>
     </div>
   )

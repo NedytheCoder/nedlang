@@ -692,8 +692,8 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             "targetExam":         f"{framework} {target_exam}" if target_exam else None,
             "readiness":          skill_avg,
             "estimatedReadyDate": None,
-            "strongest":          [s[0].capitalize() for s in sorted_skills[:2]] if sorted_skills else [],
-            "weakest":            [s[0].capitalize() for s in sorted_skills[-2:]] if sorted_skills else [],
+            "strongest":          [s[0] for s in sorted_skills[:2]] if sorted_skills else [],
+            "weakest":            [s[0] for s in sorted_skills[-2:]] if sorted_skills else [],
         }
 
         # ── Insights (rule-based) ─────────────────────────────────────────────

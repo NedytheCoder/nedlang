@@ -21,12 +21,14 @@ export default function LessonContainer({ lesson }: Props) {
         level={lesson.level}
         topic={lesson.topic}
         framework={lesson.framework}
+        progressCompleted={lesson.progress_completed}
+        progressTotal={lesson.progress_total}
       />
       <LessonIntro introduction={lesson.introduction} />
       <CoreExplanation core_explanation={lesson.core_explanation} />
       {lesson.examples?.length > 0 && <ExampleBlock examples={lesson.examples} />}
-      {lesson.dialogues?.length > 0 && <DialogueBlock dialogues={lesson.dialogues} />}
-      {lesson.vocabulary?.length > 0 && <VocabularyBlock vocabulary={lesson.vocabulary} />}
+      {lesson.dialogues?.length > 0 && <DialogueBlock dialogues={lesson.dialogues} lang={lesson.language_code} />}
+      {lesson.vocabulary?.length > 0 && <VocabularyBlock vocabulary={lesson.vocabulary} lang={lesson.language_code} />}
       {lesson.exercises?.length > 0 && <ExerciseBlock exercises={lesson.exercises} />}
       {lesson.reinforcement && <ReinforcementBlock reinforcement={lesson.reinforcement} />}
       <SummaryBlock summary={lesson.summary} />

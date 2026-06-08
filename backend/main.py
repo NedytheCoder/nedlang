@@ -2,6 +2,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from openai import OpenAI
 from dotenv import load_dotenv
+from api.convo import router as convo_router
 from api.lesson import router as lesson_router
 from api.reception.test import router as test_router
 from api.reception.grading import router as grading_router
@@ -27,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(convo_router,   prefix="/convo",           tags=["Convo"])
 app.include_router(lesson_router,  prefix="/lesson",          tags=["Lesson"])
 app.include_router(test_router,    prefix="/reception/test",  tags=["Reception Test API"])
 app.include_router(grading_router, prefix="/reception/grade", tags=["Reception Grading API"])

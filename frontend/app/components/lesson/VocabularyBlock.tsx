@@ -3,12 +3,14 @@
 import { motion } from "framer-motion"
 import { useTranslation } from "../../../i18n/LanguageProvider"
 import type { VocabItem } from "./types"
+import SpeakButton from "./SpeakButton"
 
 interface Props {
   vocabulary: VocabItem[]
+  lang?: string
 }
 
-export default function VocabularyBlock({ vocabulary }: Props) {
+export default function VocabularyBlock({ vocabulary, lang }: Props) {
   const { t } = useTranslation()
 
   if (!vocabulary?.length) return null
@@ -40,9 +42,12 @@ export default function VocabularyBlock({ vocabulary }: Props) {
           >
             {/* Word + translation row */}
             <div className="flex items-start justify-between gap-2 mb-2">
-              <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base leading-tight">
-                {item.word}
-              </span>
+              <div className="flex items-center gap-1.5 min-w-0">
+                <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base leading-tight">
+                  {item.word}
+                </span>
+                <SpeakButton text={item.word} lang={lang} />
+              </div>
               <span className="text-xs font-medium text-violet-600 dark:text-violet-400 bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20 px-2 py-0.5 rounded-full flex-shrink-0">
                 {item.translation}
               </span>

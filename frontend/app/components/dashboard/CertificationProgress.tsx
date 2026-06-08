@@ -75,7 +75,7 @@ export default function CertificationProgress({ certification }: Props) {
             {strongest.map((area) => (
               <div key={area} className="flex items-center gap-2 p-2.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 rounded-xl">
                 <span className="text-emerald-500 text-sm">✓</span>
-                <span className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{area}</span>
+                <span className="text-xs text-emerald-700 dark:text-emerald-300 font-medium">{t(`dash_skill_${area}`)}</span>
               </div>
             ))}
           </div>
@@ -91,7 +91,7 @@ export default function CertificationProgress({ certification }: Props) {
             {weakest.map((area) => (
               <div key={area} className="flex items-center gap-2 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-100 dark:border-amber-500/20 rounded-xl">
                 <span className="text-amber-500 text-sm">↗</span>
-                <span className="text-xs text-amber-700 dark:text-amber-300 font-medium">{area}</span>
+                <span className="text-xs text-amber-700 dark:text-amber-300 font-medium">{t(`dash_skill_${area}`)}</span>
               </div>
             ))}
           </div>

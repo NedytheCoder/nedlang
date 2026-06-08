@@ -101,4 +101,10 @@ export interface Lesson {
   level?: string
   topic?: string
   framework?: string
+  node_id?: number
+  lesson_id?: string
+  session_type?: string
+  language_code?: string
+  progress_completed?: number
+  progress_total?: number
 }

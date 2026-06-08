@@ -22,8 +22,10 @@ from database.script import get_connection
 
 load_dotenv()
 
-router = APIRouter()
+router  = APIRouter()
 _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+_XP_PER_LESSON = 50
 
 
 @router.get("/{node_id}")
@@ -52,7 +54,7 @@ def get_lesson(
             """
             SELECT u.id, u.learning_goal, u.framework, u.current_level,
                    nl.name AS native_name,
-                   tl.name AS target_name
+                   tl.name AS target_name, tl.code AS target_code
             FROM users u
             JOIN languages nl ON nl.id = u.native_language_id
             JOIN languages tl ON tl.id = u.target_language_id
@@ -101,6 +103,23 @@ def get_lesson(
             (user_id, node_id),
         ).fetchone()
 
+        # ── Curriculum progress (shared by both cached + fresh paths) ────────
+        progress_row = conn.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM curriculum_nodes
+                 WHERE language_id = (SELECT target_language_id FROM users WHERE id = ?)
+                   AND framework   = (SELECT framework FROM users WHERE id = ?)) AS total,
+                (SELECT COUNT(DISTINCT l.node_id) FROM user_lesson_progress ulp
+                 JOIN lessons l ON l.id = ulp.lesson_id
+                 WHERE ulp.user_id = ? AND ulp.status = 'completed'
+                   AND l.node_id IS NOT NULL) AS completed
+            """,
+            (user_id, user_id, user_id),
+        ).fetchone()
+        progress_total     = progress_row["total"]     if progress_row else 0
+        progress_completed = progress_row["completed"] if progress_row else 0
+
         if cached:
             progress = conn.execute(
                 "SELECT status FROM user_lesson_progress WHERE user_id = ? AND lesson_id = ?",
@@ -111,12 +130,15 @@ def get_lesson(
             )
             lesson_data = json.loads(cached["lesson_json"])
             lesson_data.update({
-                "level":        node["level"],
-                "topic":        node["topic"],
-                "framework":    node["framework"],
-                "node_id":      node_id,
-                "lesson_id":    cached["id"],
-                "session_type": session_type,
+                "level":              node["level"],
+                "topic":              node["topic"],
+                "framework":          node["framework"],
+                "node_id":            node_id,
+                "lesson_id":          cached["id"],
+                "session_type":       session_type,
+                "language_code":      user["target_code"],
+                "progress_completed": progress_completed,
+                "progress_total":     progress_total,
             })
             return lesson_data
 
@@ -195,12 +217,15 @@ def get_lesson(
         conn.commit()
 
         lesson_data.update({
-            "level":        node["level"],
-            "topic":        node["topic"],
-            "framework":    node["framework"],
-            "node_id":      node_id,
-            "lesson_id":    lesson_id,
-            "session_type": "new_lesson",
+            "level":              node["level"],
+            "topic":              node["topic"],
+            "framework":          node["framework"],
+            "node_id":            node_id,
+            "lesson_id":          lesson_id,
+            "session_type":       "new_lesson",
+            "language_code":      user["target_code"],
+            "progress_completed": progress_completed,
+            "progress_total":     progress_total,
         })
         return lesson_data
 
@@ -210,6 +235,107 @@ def get_lesson(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     finally:
         conn.close()
+
+
+def _next_unstarted_node(conn, user_id: str) -> int | None:
+    row = conn.execute(
+        """
+        SELECT cn.id FROM curriculum_nodes cn
+        WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = ?)
+          AND cn.framework   = (SELECT framework             FROM users WHERE id = ?)
+          AND cn.id NOT IN (
+              SELECT l.node_id FROM lessons l
+              WHERE l.user_id = ? AND l.node_id IS NOT NULL
+          )
+        ORDER BY cn.lesson_order
+        LIMIT 1
+        """,
+        (user_id, user_id, user_id),
+    ).fetchone()
+    return row["id"] if row else None
+
+
+@router.post("/{node_id}/complete")
+def complete_lesson(
+    node_id: int,
+    user_id: str = Query(...),
+):
+    conn = get_connection()
+    try:
+        lesson_row = conn.execute(
+            "SELECT id, estimated_minutes FROM lessons WHERE user_id = ? AND node_id = ? ORDER BY generated_at DESC LIMIT 1",
+            (user_id, node_id),
+        ).fetchone()
+        if lesson_row is None:
+            raise HTTPException(status_code=404, detail="Lesson not found. Load the lesson page first.")
+
+        lesson_id = lesson_row["id"]
+        minutes   = lesson_row["estimated_minutes"] or 15
+
+        progress = conn.execute(
+            "SELECT status FROM user_lesson_progress WHERE user_id = ? AND lesson_id = ?",
+            (user_id, lesson_id),
+        ).fetchone()
+
+        if progress and progress["status"] == "completed":
+            total_xp = conn.execute(
+                "SELECT current_xp FROM users WHERE id = ?", (user_id,)
+            ).fetchone()["current_xp"] or 0
+            return {
+                "xp_earned":        0,
+                "total_xp":         total_xp,
+                "next_node_id":     _next_unstarted_node(conn, user_id),
+                "already_completed": True,
+            }
+
+        # Flip progress to completed
+        if progress:
+            conn.execute(
+                "UPDATE user_lesson_progress SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE user_id = ? AND lesson_id = ?",
+                (user_id, lesson_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO user_lesson_progress (user_id, lesson_id, status, completed_at) VALUES (?, ?, 'completed', CURRENT_TIMESTAMP)",
+                (user_id, lesson_id),
+            )
+
+        # Award XP
+        conn.execute(
+            "UPDATE users SET current_xp = current_xp + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (_XP_PER_LESSON, user_id),
+        )
+
+        # Log learning session for streak + heatmap
+        conn.execute(
+            """
+            INSERT INTO learning_sessions (id, user_id, lesson_id, ended_at, minutes_spent, xp_earned)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+            """,
+            (str(uuid.uuid4()), user_id, lesson_id, minutes, _XP_PER_LESSON),
+        )
+
+        conn.commit()
+
+        total_xp = conn.execute(
+            "SELECT current_xp FROM users WHERE id = ?", (user_id,)
+        ).fetchone()["current_xp"] or 0
+
+        return {
+            "xp_earned":         _XP_PER_LESSON,
+            "total_xp":          total_xp,
+            "next_node_id":      _next_unstarted_node(conn, user_id),
+            "already_completed": False,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
 
 _SESSION_LABELS = {
     "new_lesson": "New Lesson",
@@ -249,14 +375,35 @@ _ADAPTIVE_RULES_MAP = {
     ),
 }
 
+# Skill-focus rules — fire based on curriculum node type, not user weakness.
+# Applied in addition to (not instead of) weakness-based rules.
+_SKILL_FOCUS_RULES_MAP: dict[str, str] = {
+    "phonetics": (
+        "- This is a PHONETICS lesson. The vocabulary section MUST use letter-sound pairs: "
+        "each 'word' field is a letter or character, 'translation' is its IPA symbol plus a "
+        "plain-language description, 'example' is a word in the target language containing that "
+        "sound. Cover EVERY letter or sound in the topic's inventory — do not sample or abbreviate. "
+        "Exercises must be recognition and production drills (e.g. 'Which word contains /y/?', "
+        "'Write the letter that makes this sound'), never translation tasks."
+    ),
+    "pronunciation": (
+        "- This is a PRONUNCIATION lesson. Cover every key pronunciation rule, pattern, and "
+        "exception for this topic completely. Include IPA notation for every sound discussed. "
+        "Exercises must be articulation drills and minimal-pair comparisons that train the learner "
+        "to distinguish and produce the sounds correctly."
+    ),
+}
+
 # Maps skill_focus values → preferred reinforcement type
 _SKILL_TO_REINFORCEMENT: dict[str, str] = {
-    "grammar":    "quiz",
-    "vocabulary": "quiz",
-    "speaking":   "speaking",
-    "listening":  "listening",
-    "writing":    "writing",
-    "reading":    "reading",
+    "grammar":       "quiz",
+    "vocabulary":    "quiz",
+    "speaking":      "speaking",
+    "listening":     "listening",
+    "writing":       "writing",
+    "reading":       "reading",
+    "phonetics":     "reflection",
+    "pronunciation": "reflection",
 }
 
 # Maps weakness values → preferred reinforcement type
@@ -339,7 +486,7 @@ def _reinforcement_schema(reinforcement_type: str, target_language: str, native_
       "options": {{"A": "<option>", "B": "<option>", "C": "<option>", "D": "<option>"}},
       "correct": "<A | B | C | D>"
     }}
-    // Include 3–5 MCQ items covering the lesson topic
+    // Include at least 4 MCQ items covering the lesson topic; add more if the topic warrants it
   ]
 }}"""
 
@@ -353,7 +500,7 @@ def _reinforcement_schema(reinforcement_type: str, target_language: str, native_
       "prompt": "<conversational turn or role-play cue in {target_language}>",
       "suggested_response": "<expected learner response or model answer in {target_language}>"
     }}
-    // Include 4–6 turns forming a coherent role-play exchange
+    // Include at least 5 turns forming a coherent role-play exchange; extend if the topic needs more practice
   ]
 }}"""
 
@@ -367,7 +514,7 @@ def _reinforcement_schema(reinforcement_type: str, target_language: str, native_
       "prompt": "<the speaking cue or question the learner must respond to aloud, in {target_language}>",
       "example_response": "<a model spoken answer in {target_language}>"
     }}
-    // Include 2–4 speaking tasks of increasing complexity
+    // Include at least 3 speaking tasks of increasing complexity
   ]
 }}"""
 
@@ -382,7 +529,7 @@ def _reinforcement_schema(reinforcement_type: str, target_language: str, native_
       "question": "<comprehension question in {target_language}>",
       "answer": "<correct answer in {target_language}>"
     }}
-    // Include 2–4 listening scenarios; transcripts should feel like real speech
+    // Include at least 3 listening scenarios; transcripts should feel like real speech
   ]
 }}"""
 
@@ -396,7 +543,7 @@ def _reinforcement_schema(reinforcement_type: str, target_language: str, native_
       "question": "<comprehension or inference question in {target_language}>",
       "answer": "<correct answer in {target_language}>"
     }}
-    // Include 1 passage with 2–4 comprehension questions
+    // Include 1 passage with at least 3 comprehension questions
   ]
 }}"""
 
@@ -411,7 +558,7 @@ def _reinforcement_schema(reinforcement_type: str, target_language: str, native_
       "word_count_guide": "<e.g. 40–70 words>",
       "model_answer": "<a concise model response in {target_language}>"
     }}
-    // Include 1–2 writing tasks scaled to the lesson level
+    // Include at least 2 writing tasks scaled to the lesson level
   ]
 }}"""
 
@@ -424,7 +571,7 @@ def _reinforcement_schema(reinforcement_type: str, target_language: str, native_
       "question": "<self-check question inviting the learner to reflect on what they just studied, in {target_language}>",
       "hint": "<optional hint or anchor phrase in {target_language}; may include a {native_language} note if helpful>"
     }}
-    // Include 2–3 open reflection prompts — these are not graded
+    // Include at least 3 open reflection prompts — these are not graded
   ]
 }}"""
 
@@ -440,31 +587,33 @@ def _reinforcement_instructions(reinforcement_type: str) -> str:
     """Return the generation instructions for the reinforcement section."""
     instructions = {
         "quiz": (
-            "Generate 3–5 multiple-choice questions that test understanding of the lesson topic. "
+            "Generate at least 4 multiple-choice questions that test understanding of the lesson topic; "
+            "generate more if the topic has a large or enumerable inventory. "
             "Questions must be answerable from the lesson content alone. Each must have exactly 4 options and one correct answer."
         ),
         "dialogue": (
-            "Generate a 4–6 turn role-play dialogue where the learner practices the lesson topic in a realistic conversation. "
-            "Mark each turn as 'tutor' or 'learner'. Include a suggested_response for every learner turn."
+            "Generate at least 5 turns forming a coherent role-play dialogue where the learner practices the lesson topic. "
+            "Mark each turn as 'tutor' or 'learner'. Include a suggested_response for every learner turn. "
+            "Extend the exchange if the topic requires more practice coverage."
         ),
         "speaking": (
-            "Generate 2–4 speaking tasks of increasing difficulty. "
+            "Generate at least 3 speaking tasks of increasing difficulty. "
             "Each task must ask the learner to produce spoken output based on the lesson topic. Include a model answer."
         ),
         "listening": (
-            "Generate 2–4 short listening scenarios. Each transcript must sound like authentic natural speech — "
+            "Generate at least 3 short listening scenarios. Each transcript must sound like authentic natural speech — "
             "not textbook sentences. Questions must be answerable solely from the transcript."
         ),
         "reading": (
-            "Generate 1 short reading passage appropriate for the lesson level, followed by 2–4 comprehension questions. "
+            "Generate 1 short reading passage appropriate for the lesson level, followed by at least 3 comprehension questions. "
             "Passage length and complexity must match the framework level."
         ),
         "writing": (
-            "Generate 1–2 guided writing tasks. Prompts must be written in the target language. "
+            "Generate at least 2 guided writing tasks. Prompts must be written in the target language. "
             "Include a word_count_guide appropriate to the level and a concise model answer."
         ),
         "reflection": (
-            "Generate 2–3 open self-check questions that prompt the learner to reflect on what they studied. "
+            "Generate at least 3 open self-check questions that prompt the learner to reflect on what they studied. "
             "These are not graded — they should feel natural, not like a test."
         ),
         "none": (
@@ -475,12 +624,19 @@ def _reinforcement_instructions(reinforcement_type: str) -> str:
 
 
 def _adaptive_rules(context: dict) -> str:
-    weaknesses  = context.get("weaknesses", []) or []
-    interests   = context.get("interests",  []) or []
+    weaknesses  = context.get("weaknesses",  []) or []
+    interests   = context.get("interests",   []) or []
+    skill_focus = [s.lower().strip() for s in (context.get("skill_focus") or [])]
     session     = context.get("session_type", "new_lesson")
     level       = context.get("level") or context.get("current_level", "A1")
 
     lines: list[str] = []
+
+    # Skill-focus rules fire from the curriculum node, independent of user weaknesses
+    for skill in skill_focus:
+        rule = _SKILL_FOCUS_RULES_MAP.get(skill)
+        if rule:
+            lines.append(rule)
 
     for w in weaknesses:
         rule = _ADAPTIVE_RULES_MAP.get(w.lower().strip())
@@ -631,6 +787,7 @@ STRICT GENERATION RULES
 7. The reinforcement section must match the assigned type exactly — do not substitute a different type.
 8. The summary must be 2–3 sentences reinforcing what was learned and hinting at what comes next.
 9. Do NOT include markdown formatting, code fences, explanatory text, or any content outside the JSON object.
+10. COMPLETENESS IS REQUIRED — this is the most important rule: if the topic has a finite, enumerable inventory (letters, numbers, days of the week, months, pronouns, article forms, negation patterns, verb endings, etc.) every single item in that set MUST appear in the lesson. Do not sample. Do not use "etc." Do not say "and so on." A learner who completes this lesson must feel fully equipped on the topic. For conceptual topics without a fixed inventory, cover every key rule, pattern, and common exception — not just representative examples. Thin coverage is a failure mode; err strongly on the side of more content, more examples, and more practice items.
 
 ════════════════════════════════════════
 OUTPUT FORMAT — RETURN ONLY THIS JSON

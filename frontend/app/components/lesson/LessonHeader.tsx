@@ -9,6 +9,8 @@ interface Props {
   level?: string
   topic?: string
   framework?: string
+  progressCompleted?: number
+  progressTotal?: number
 }
 
 function levelColor(level: string): string {
@@ -20,18 +22,7 @@ function levelColor(level: string): string {
   return "bg-violet-50 dark:bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-500/30"
 }
 
-const SECTIONS = [
-  "lesson_intro_label",
-  "lesson_explanation_label",
-  "lesson_examples_label",
-  "lesson_dialogues_label",
-  "lesson_vocab_label",
-  "lesson_exercises_label",
-  "lesson_reinforcement_label",
-  "lesson_summary_label",
-]
-
-export default function LessonHeader({ title, level, topic, framework }: Props) {
+export default function LessonHeader({ title, level, topic, framework, progressCompleted = 0, progressTotal = 0 }: Props) {
   const { t } = useTranslation()
 
   return (
@@ -71,28 +62,27 @@ export default function LessonHeader({ title, level, topic, framework }: Props) 
         {title}
       </h1>
 
-      {/* Progress indicator — visual only */}
-      <div>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-slate-500 dark:text-gray-400">{t("dash_hero_progress")}</span>
-          <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-            {SECTIONS.length} {t("lesson_explanation_label").toLowerCase() === "explication principale" ? "sections" : "sections"}
-          </span>
-        </div>
-        {/* Step dots */}
-        <div className="flex items-center gap-1.5">
-          {SECTIONS.map((_, i) => (
-            <div
-              key={i}
-              className={`h-1.5 flex-1 rounded-full transition-all ${
-                i === 0
-                  ? "bg-indigo-600 dark:bg-indigo-500"
-                  : "bg-slate-100 dark:bg-slate-800"
-              }`}
+      {/* Curriculum progress */}
+      {progressTotal > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-slate-500 dark:text-gray-400">
+              {t("dash_hero_progress")}
+            </span>
+            <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
+              {progressCompleted} / {progressTotal} lessons
+            </span>
+          </div>
+          <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.round((progressCompleted / progressTotal) * 100)}%` }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
+              className="h-full bg-indigo-600 dark:bg-indigo-500 rounded-full"
             />
-          ))}
+          </div>
         </div>
-      </div>
+      )}
     </motion.div>
   )
 }
