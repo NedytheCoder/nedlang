@@ -644,13 +644,14 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             SELECT cn.id FROM curriculum_nodes cn
             WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = ?)
               AND cn.framework   = (SELECT framework FROM users WHERE id = ?)
+              AND cn.level       = (SELECT current_level  FROM users WHERE id = ?)
               AND cn.id NOT IN (
                   SELECT l.node_id FROM lessons l
                   WHERE l.user_id = ? AND l.node_id IS NOT NULL
               )
             ORDER BY cn.lesson_order
             LIMIT 1
-        """, (user_id, user_id, user_id)).fetchone()
+        """, (user_id, user_id, user_id, user_id)).fetchone()
         next_node_id = next_node_row["id"] if next_node_row else None
 
         # ── Error log ─────────────────────────────────────────────────────────

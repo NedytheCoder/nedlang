@@ -118,7 +118,7 @@ export default function Hero() {
               {...fadeUp(0.1)}
             >
               <FaBolt className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-              <span className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">AI-Powered Language Learning</span>
+              <span className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">{t("ned_hero_badge")}</span>
             </motion.div>
 
             <motion.h1

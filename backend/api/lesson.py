@@ -109,13 +109,16 @@ def get_lesson(
             SELECT
                 (SELECT COUNT(*) FROM curriculum_nodes
                  WHERE language_id = (SELECT target_language_id FROM users WHERE id = ?)
-                   AND framework   = (SELECT framework FROM users WHERE id = ?)) AS total,
+                   AND framework   = (SELECT framework      FROM users WHERE id = ?)
+                   AND level       = (SELECT current_level  FROM users WHERE id = ?)) AS total,
                 (SELECT COUNT(DISTINCT l.node_id) FROM user_lesson_progress ulp
-                 JOIN lessons l ON l.id = ulp.lesson_id
+                 JOIN lessons l      ON l.id  = ulp.lesson_id
+                 JOIN curriculum_nodes cn ON cn.id = l.node_id
                  WHERE ulp.user_id = ? AND ulp.status = 'completed'
-                   AND l.node_id IS NOT NULL) AS completed
+                   AND l.node_id IS NOT NULL
+                   AND cn.level = (SELECT current_level FROM users WHERE id = ?)) AS completed
             """,
-            (user_id, user_id, user_id),
+            (user_id, user_id, user_id, user_id, user_id),
         ).fetchone()
         progress_total     = progress_row["total"]     if progress_row else 0
         progress_completed = progress_row["completed"] if progress_row else 0
@@ -243,6 +246,7 @@ def _next_unstarted_node(conn, user_id: str) -> int | None:
         SELECT cn.id FROM curriculum_nodes cn
         WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = ?)
           AND cn.framework   = (SELECT framework             FROM users WHERE id = ?)
+          AND cn.level       = (SELECT current_level         FROM users WHERE id = ?)
           AND cn.id NOT IN (
               SELECT l.node_id FROM lessons l
               WHERE l.user_id = ? AND l.node_id IS NOT NULL
@@ -250,7 +254,7 @@ def _next_unstarted_node(conn, user_id: str) -> int | None:
         ORDER BY cn.lesson_order
         LIMIT 1
         """,
-        (user_id, user_id, user_id),
+        (user_id, user_id, user_id, user_id),
     ).fetchone()
     return row["id"] if row else None
 
