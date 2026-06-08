@@ -102,7 +102,7 @@ export default function SignupPage() {
     if (step === 0) {
       try {
         const res = await fetch(
-          `http://localhost:8000/user/check-email?email=${encodeURIComponent(data.email)}`
+          `${backendUrl}/user/check-email?email=${encodeURIComponent(data.email)}`
         )
         const { available } = await res.json()
         if (!available) {
