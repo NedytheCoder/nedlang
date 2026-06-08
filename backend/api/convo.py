@@ -18,11 +18,15 @@ Wire-up (main.py):
 """
 
 import asyncio
+import base64
+import io
 import json
 import os
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from openai import OpenAI
+from pydantic import BaseModel
 from websockets.asyncio.client import connect as ws_connect
 
 from database.script import get_connection
@@ -31,8 +35,9 @@ load_dotenv()
 
 router = APIRouter()
 
-_REALTIME_URL  = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
+_REALTIME_URL   = "wss://api.openai.com/v1/realtime?model=gpt-realtime"
 _OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+_oai            = OpenAI(api_key=_OPENAI_API_KEY)
 
 
 # ── User profile ──────────────────────────────────────────────────────────────
@@ -122,6 +127,116 @@ def _build_system_prompt(profile: dict) -> str:
     ]
 
     return "\n".join(lines)
+
+
+# ── WhatsApp-style chat helpers ───────────────────────────────────────────────
+
+def _transcribe(audio_bytes: bytes, filename: str) -> str:
+    result = _oai.audio.transcriptions.create(
+        model="whisper-1",
+        file=(filename, io.BytesIO(audio_bytes)),
+    )
+    return result.text.strip()
+
+
+def _chat_respond(messages: list[dict]) -> str:
+    response = _oai.chat.completions.create(
+        model="gpt-4o",
+        messages=messages,
+    )
+    return response.choices[0].message.content or ""
+
+
+def _tts(text: str) -> str:
+    response = _oai.audio.speech.create(
+        model="tts-1",
+        voice="alloy",
+        input=text,
+        response_format="mp3",
+    )
+    return base64.b64encode(response.content).decode()
+
+
+# ── WhatsApp-style chat endpoint ──────────────────────────────────────────────
+
+@router.post("/chat/turn")
+async def chat_turn(
+    user_id: str        = Query(...),
+    audio:   UploadFile = File(...),
+    history: str        = Form(default="[]"),
+):
+    """
+    Single turn of the WhatsApp-style chat.
+
+    Accepts a recorded audio clip + the existing conversation history,
+    returns the user's transcription, the tutor's text reply, and the
+    tutor's reply as a base64-encoded MP3.
+    """
+    profile = _get_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    audio_bytes = await audio.read()
+
+    try:
+        past: list[dict] = json.loads(history)
+    except (json.JSONDecodeError, TypeError):
+        past = []
+
+    system_prompt = _build_system_prompt(profile)
+    user_text     = await asyncio.to_thread(_transcribe, audio_bytes, audio.filename or "audio.webm")
+
+    messages = (
+        [{"role": "system", "content": system_prompt}]
+        + past
+        + [{"role": "user", "content": user_text}]
+    )
+
+    assistant_text  = await asyncio.to_thread(_chat_respond, messages)
+    assistant_audio = await asyncio.to_thread(_tts, assistant_text)
+
+    return {
+        "user_text":       user_text,
+        "assistant_text":  assistant_text,
+        "assistant_audio": assistant_audio,
+    }
+
+
+# ── Text-turn endpoint ───────────────────────────────────────────────────────
+
+class TextTurnRequest(BaseModel):
+    user_id: str
+    text: str
+    history: list[dict] = []
+
+
+@router.post("/chat/text-turn")
+async def chat_text_turn(body: TextTurnRequest):
+    """
+    Single text turn of the WhatsApp-style chat.
+
+    Accepts the user's typed message + conversation history,
+    returns the tutor's text reply and a base64-encoded MP3.
+    """
+    profile = _get_profile(body.user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    system_prompt = _build_system_prompt(profile)
+    messages = (
+        [{"role": "system", "content": system_prompt}]
+        + body.history
+        + [{"role": "user", "content": body.text}]
+    )
+
+    assistant_text  = await asyncio.to_thread(_chat_respond, messages)
+    assistant_audio = await asyncio.to_thread(_tts, assistant_text)
+
+    return {
+        "user_text":       body.text,
+        "assistant_text":  assistant_text,
+        "assistant_audio": assistant_audio,
+    }
 
 
 # ── Session info endpoint ─────────────────────────────────────────────────────
