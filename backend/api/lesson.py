@@ -53,6 +53,7 @@ def get_lesson(
         user = conn.execute(
             """
             SELECT u.id, u.learning_goal, u.framework, u.current_level,
+                   u.target_language_id,
                    nl.name AS native_name,
                    tl.name AS target_name, tl.code AS target_code
             FROM users u
@@ -64,6 +65,54 @@ def get_lesson(
         ).fetchone()
         if user is None:
             raise HTTPException(status_code=404, detail="User not found.")
+
+        # ── 3. Access control ──────────────────────────────────────────────
+        # Resolve effective level (fall back to first available level for new users)
+        effective_level = user["current_level"] or conn.execute(
+            """
+            SELECT level FROM curriculum_modules
+            WHERE language_id = ? AND framework = ?
+            ORDER BY level, module_order LIMIT 1
+            """,
+            (user["target_language_id"], user["framework"]),
+        ).fetchone()["level"]
+
+        if node["level"] != effective_level:
+            raise HTTPException(
+                status_code=403,
+                detail="This lesson is not part of your current level.",
+            )
+
+        # Check module is unlocked: module_order=1 is always accessible;
+        # others require a 'current' or 'completed' row in user_module_progress.
+        module_order_row = conn.execute(
+            "SELECT module_order FROM curriculum_modules WHERE id = ?",
+            (node["module_id"],),
+        ).fetchone()
+        module_order = module_order_row["module_order"] if module_order_row else 1
+
+        if module_order > 1:
+            mod_progress = conn.execute(
+                "SELECT status FROM user_module_progress WHERE user_id = ? AND module_id = ?",
+                (user_id, node["module_id"]),
+            ).fetchone()
+            if mod_progress is None or mod_progress["status"] == "locked":
+                raise HTTPException(
+                    status_code=403,
+                    detail="Complete the previous module before accessing this one.",
+                )
+
+        # Bootstrap module 1 progress row if missing so the dashboard reflects it
+        if module_order == 1:
+            conn.execute(
+                """
+                INSERT INTO user_module_progress (user_id, module_id, status, completed_lessons, started_at)
+                VALUES (?, ?, 'current', 0, CURRENT_TIMESTAMP)
+                ON CONFLICT(user_id, module_id) DO NOTHING
+                """,
+                (user_id, node["module_id"]),
+            )
+            conn.commit()
 
         hobbies = [
             r["name"] for r in conn.execute(
@@ -240,7 +289,18 @@ def get_lesson(
         conn.close()
 
 
-def _next_unstarted_node(conn, user_id: str) -> int | None:
+_CEFR_LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"]
+_HSK_LEVELS  = ["HSK1", "HSK2", "HSK3", "HSK4", "HSK5", "HSK6"]
+
+
+def _next_level(framework: str, current_level: str) -> str | None:
+    seq = _HSK_LEVELS if framework == "HSK" else _CEFR_LEVELS
+    idx = seq.index(current_level) if current_level in seq else -1
+    return seq[idx + 1] if 0 <= idx < len(seq) - 1 else None
+
+
+def _next_incomplete_node(conn, user_id: str) -> int | None:
+    """Return the lowest-order node in the current level that has no completed lesson."""
     row = conn.execute(
         """
         SELECT cn.id FROM curriculum_nodes cn
@@ -249,7 +309,8 @@ def _next_unstarted_node(conn, user_id: str) -> int | None:
           AND cn.level       = (SELECT current_level         FROM users WHERE id = ?)
           AND cn.id NOT IN (
               SELECT l.node_id FROM lessons l
-              WHERE l.user_id = ? AND l.node_id IS NOT NULL
+              JOIN user_lesson_progress ulp ON ulp.lesson_id = l.id
+              WHERE l.user_id = ? AND ulp.status = 'completed' AND l.node_id IS NOT NULL
           )
         ORDER BY cn.lesson_order
         LIMIT 1
@@ -257,6 +318,184 @@ def _next_unstarted_node(conn, user_id: str) -> int | None:
         (user_id, user_id, user_id, user_id),
     ).fetchone()
     return row["id"] if row else None
+
+
+def _award_achievements(conn, user_id: str, bonus_xp_acc: list[int]) -> list[str]:
+    """Check achievement conditions and award any newly earned ones. Returns names of newly earned."""
+    newly_earned: list[str] = []
+
+    already = {
+        r["achievement_id"]
+        for r in conn.execute(
+            "SELECT achievement_id FROM user_achievements WHERE user_id = ?", (user_id,)
+        ).fetchall()
+    }
+
+    all_achievements = conn.execute("SELECT id, name, xp_reward FROM achievements").fetchall()
+    ach_by_name = {r["name"]: r for r in all_achievements}
+
+    def _earn(name: str) -> None:
+        row = ach_by_name.get(name)
+        if row and row["id"] not in already:
+            conn.execute(
+                "INSERT OR IGNORE INTO user_achievements (user_id, achievement_id) VALUES (?, ?)",
+                (user_id, row["id"]),
+            )
+            if row["xp_reward"]:
+                conn.execute(
+                    "UPDATE users SET current_xp = current_xp + ? WHERE id = ?",
+                    (row["xp_reward"], user_id),
+                )
+                bonus_xp_acc.append(row["xp_reward"])
+            already.add(row["id"])
+            newly_earned.append(name)
+
+    # Count completed lessons
+    total_completed = conn.execute(
+        "SELECT COUNT(*) FROM user_lesson_progress WHERE user_id = ? AND status = 'completed'",
+        (user_id,),
+    ).fetchone()[0]
+
+    if total_completed >= 1:
+        _earn("first_lesson")
+
+    # Streak check — consecutive distinct calendar days with a learning_session
+    streak = conn.execute(
+        """
+        WITH days AS (
+            SELECT DISTINCT date(ended_at) AS d FROM learning_sessions WHERE user_id = ?
+            ORDER BY d DESC
+        ),
+        numbered AS (
+            SELECT d, row_number() OVER (ORDER BY d DESC) AS rn FROM days
+        )
+        SELECT COUNT(*) AS streak FROM numbered
+        WHERE julianday(date('now')) - julianday(d) = rn - 1
+        """,
+        (user_id,),
+    ).fetchone()[0] or 0
+
+    if streak >= 3:   _earn("streak_3")
+    if streak >= 7:   _earn("streak_7")
+    if streak >= 30:  _earn("streak_30")
+    if streak >= 100: _earn("streak_100")
+
+    # Cumulative study time
+    total_minutes = conn.execute(
+        "SELECT COALESCE(SUM(minutes_spent), 0) FROM learning_sessions WHERE user_id = ?",
+        (user_id,),
+    ).fetchone()[0]
+    if total_minutes >= 600:   _earn("ten_hours")
+    if total_minutes >= 3000:  _earn("fifty_hours")
+    if total_minutes >= 6000:  _earn("hundred_hours")
+
+    # App XP level
+    current_xp = conn.execute(
+        "SELECT current_xp FROM users WHERE id = ?", (user_id,)
+    ).fetchone()["current_xp"] or 0
+    level_row = conn.execute(
+        "SELECT level_no FROM xp_levels WHERE xp_required <= ? ORDER BY xp_required DESC LIMIT 1",
+        (current_xp,),
+    ).fetchone()
+    if level_row and level_row["level_no"] >= 5:
+        _earn("level_up")
+
+    return newly_earned
+
+
+def _sync_module_progress(conn, user_id: str, module_id: int) -> bool:
+    """
+    Recount completed lessons for this module and update user_module_progress.
+    Returns True if the module just became fully completed.
+    """
+    total_nodes = conn.execute(
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE module_id = ?", (module_id,)
+    ).fetchone()[0]
+
+    completed_count = conn.execute(
+        """
+        SELECT COUNT(DISTINCT l.node_id) FROM lessons l
+        JOIN user_lesson_progress ulp ON ulp.lesson_id = l.id
+        JOIN curriculum_nodes cn ON cn.id = l.node_id
+        WHERE l.user_id = ? AND cn.module_id = ? AND ulp.status = 'completed'
+        """,
+        (user_id, module_id),
+    ).fetchone()[0]
+
+    existing = conn.execute(
+        "SELECT status FROM user_module_progress WHERE user_id = ? AND module_id = ?",
+        (user_id, module_id),
+    ).fetchone()
+
+    module_done = (total_nodes > 0 and completed_count >= total_nodes)
+    new_status = "completed" if module_done else "current"
+
+    if existing:
+        conn.execute(
+            """
+            UPDATE user_module_progress
+               SET completed_lessons = ?,
+                   status = ?,
+                   completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END
+             WHERE user_id = ? AND module_id = ?
+            """,
+            (completed_count, new_status, module_done, user_id, module_id),
+        )
+    else:
+        conn.execute(
+            """
+            INSERT INTO user_module_progress
+                (user_id, module_id, status, completed_lessons, started_at, completed_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            """,
+            (user_id, module_id, new_status, completed_count,
+             "CURRENT_TIMESTAMP" if module_done else None),
+        )
+
+    return module_done
+
+
+def _advance_level_if_done(conn, user_id: str) -> bool:
+    """
+    If every node in the user's current level is completed, advance current_level.
+    Returns True if level was advanced.
+    """
+    user = conn.execute(
+        "SELECT target_language_id, framework, current_level FROM users WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    if not user or not user["current_level"]:
+        return False
+
+    total = conn.execute(
+        """
+        SELECT COUNT(*) FROM curriculum_nodes
+        WHERE language_id = ? AND framework = ? AND level = ?
+        """,
+        (user["target_language_id"], user["framework"], user["current_level"]),
+    ).fetchone()[0]
+
+    completed = conn.execute(
+        """
+        SELECT COUNT(DISTINCT l.node_id) FROM lessons l
+        JOIN user_lesson_progress ulp ON ulp.lesson_id = l.id
+        JOIN curriculum_nodes cn ON cn.id = l.node_id
+        WHERE l.user_id = ?
+          AND cn.language_id = ? AND cn.framework = ? AND cn.level = ?
+          AND ulp.status = 'completed'
+        """,
+        (user_id, user["target_language_id"], user["framework"], user["current_level"]),
+    ).fetchone()[0]
+
+    if total > 0 and completed >= total:
+        next_lv = _next_level(user["framework"], user["current_level"])
+        if next_lv:
+            conn.execute(
+                "UPDATE users SET current_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                (next_lv, user_id),
+            )
+            return True
+    return False
 
 
 @router.post("/{node_id}/complete")
@@ -267,13 +506,14 @@ def complete_lesson(
     conn = get_connection()
     try:
         lesson_row = conn.execute(
-            "SELECT id, estimated_minutes FROM lessons WHERE user_id = ? AND node_id = ? ORDER BY generated_at DESC LIMIT 1",
+            "SELECT id, module_id, estimated_minutes FROM lessons WHERE user_id = ? AND node_id = ? ORDER BY generated_at DESC LIMIT 1",
             (user_id, node_id),
         ).fetchone()
         if lesson_row is None:
             raise HTTPException(status_code=404, detail="Lesson not found. Load the lesson page first.")
 
         lesson_id = lesson_row["id"]
+        module_id = lesson_row["module_id"]
         minutes   = lesson_row["estimated_minutes"] or 15
 
         progress = conn.execute(
@@ -286,13 +526,15 @@ def complete_lesson(
                 "SELECT current_xp FROM users WHERE id = ?", (user_id,)
             ).fetchone()["current_xp"] or 0
             return {
-                "xp_earned":        0,
-                "total_xp":         total_xp,
-                "next_node_id":     _next_unstarted_node(conn, user_id),
+                "xp_earned":         0,
+                "total_xp":          total_xp,
+                "next_node_id":      _next_incomplete_node(conn, user_id),
                 "already_completed": True,
+                "achievements":      [],
+                "level_advanced":    False,
             }
 
-        # Flip progress to completed
+        # ── Mark lesson completed ─────────────────────────────────────────────
         if progress:
             conn.execute(
                 "UPDATE user_lesson_progress SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE user_id = ? AND lesson_id = ?",
@@ -304,13 +546,13 @@ def complete_lesson(
                 (user_id, lesson_id),
             )
 
-        # Award XP
+        # ── Award lesson XP ───────────────────────────────────────────────────
         conn.execute(
             "UPDATE users SET current_xp = current_xp + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (_XP_PER_LESSON, user_id),
         )
 
-        # Log learning session for streak + heatmap
+        # ── Log learning session ──────────────────────────────────────────────
         conn.execute(
             """
             INSERT INTO learning_sessions (id, user_id, lesson_id, ended_at, minutes_spent, xp_earned)
@@ -319,6 +561,84 @@ def complete_lesson(
             (str(uuid.uuid4()), user_id, lesson_id, minutes, _XP_PER_LESSON),
         )
 
+        # ── Sync module progress ──────────────────────────────────────────────
+        module_done = _sync_module_progress(conn, user_id, module_id)
+
+        # Unlock the next module in sequence if current one just completed
+        if module_done:
+            next_mod = conn.execute(
+                """
+                SELECT cm2.id FROM curriculum_modules cm1
+                JOIN curriculum_modules cm2
+                  ON cm2.language_id = cm1.language_id
+                 AND cm2.framework   = cm1.framework
+                 AND cm2.level       = cm1.level
+                 AND cm2.module_order = cm1.module_order + 1
+                WHERE cm1.id = ?
+                """,
+                (module_id,),
+            ).fetchone()
+            if next_mod:
+                conn.execute(
+                    """
+                    INSERT INTO user_module_progress (user_id, module_id, status, completed_lessons, started_at)
+                    VALUES (?, ?, 'current', 0, CURRENT_TIMESTAMP)
+                    ON CONFLICT(user_id, module_id) DO UPDATE SET status = 'current'
+                    """,
+                    (user_id, next_mod["id"]),
+                )
+
+        # ── Level advancement ─────────────────────────────────────────────────
+        level_advanced = _advance_level_if_done(conn, user_id)
+        if level_advanced:
+            # Unlock module 1 of the new level
+            new_level = conn.execute(
+                "SELECT current_level, target_language_id, framework FROM users WHERE id = ?",
+                (user_id,),
+            ).fetchone()
+            if new_level:
+                first_new_mod = conn.execute(
+                    """
+                    SELECT id FROM curriculum_modules
+                    WHERE language_id = ? AND framework = ? AND level = ?
+                    ORDER BY module_order LIMIT 1
+                    """,
+                    (new_level["target_language_id"], new_level["framework"], new_level["current_level"]),
+                ).fetchone()
+                if first_new_mod:
+                    conn.execute(
+                        """
+                        INSERT INTO user_module_progress (user_id, module_id, status, completed_lessons, started_at)
+                        VALUES (?, ?, 'current', 0, CURRENT_TIMESTAMP)
+                        ON CONFLICT(user_id, module_id) DO UPDATE SET status = 'current'
+                        """,
+                        (user_id, first_new_mod["id"]),
+                    )
+
+        # ── Check achievements ────────────────────────────────────────────────
+        bonus_xp: list[int] = []
+        new_achievements = _award_achievements(conn, user_id, bonus_xp)
+        if level_advanced:
+            ach_row = conn.execute(
+                "SELECT id, xp_reward FROM achievements WHERE name = 'framework_advance'"
+            ).fetchone()
+            already_has = conn.execute(
+                "SELECT 1 FROM user_achievements WHERE user_id = ? AND achievement_id = ?",
+                (user_id, ach_row["id"]),
+            ).fetchone() if ach_row else None
+            if ach_row and not already_has:
+                conn.execute(
+                    "INSERT OR IGNORE INTO user_achievements (user_id, achievement_id) VALUES (?, ?)",
+                    (user_id, ach_row["id"]),
+                )
+                if ach_row["xp_reward"]:
+                    conn.execute(
+                        "UPDATE users SET current_xp = current_xp + ? WHERE id = ?",
+                        (ach_row["xp_reward"], user_id),
+                    )
+                    bonus_xp.append(ach_row["xp_reward"])
+                new_achievements.append("framework_advance")
+
         conn.commit()
 
         total_xp = conn.execute(
@@ -326,10 +646,12 @@ def complete_lesson(
         ).fetchone()["current_xp"] or 0
 
         return {
-            "xp_earned":         _XP_PER_LESSON,
+            "xp_earned":         _XP_PER_LESSON + sum(bonus_xp),
             "total_xp":          total_xp,
-            "next_node_id":      _next_unstarted_node(conn, user_id),
+            "next_node_id":      _next_incomplete_node(conn, user_id),
             "already_completed": False,
+            "achievements":      new_achievements,
+            "level_advanced":    level_advanced,
         }
 
     except HTTPException:
@@ -721,6 +1043,11 @@ def build_lesson_prompt(context: dict) -> str:
     # ── Adaptive rules ────────────────────────────────────────────────────────
     adaptive_rules = _adaptive_rules({**context, "level": level})
 
+    # ── Instruction language (hard cutoff: A1/HSK1 → native, all others → target)
+    beginner_levels = {"A1", "HSK1"}
+    teach_in_native = level in beginner_levels
+    instruction_language = native_language if teach_in_native else target_language
+
     # ── Assemble prompt ───────────────────────────────────────────────────────
     prompt = f"""You are a world-class language tutor AI specialising in personalised, curriculum-aligned language instruction.
 Your role is to generate a single structured lesson for a real learner. You must adapt your teaching style entirely to the learner's profile below.
@@ -760,8 +1087,8 @@ PERSONALISATION RULES:
 - Frame the lesson around the learner's goal: {learning_goal}
 - If the learner's level is beginner, keep language simple and explanations accessible
 - Reinforce weak areas subtly through exercises and the reinforcement section
-- Explanations should be written in {target_language}
-- You MAY include brief clarifying notes in {native_language} ONLY when a concept is genuinely ambiguous or likely to cause confusion — keep these minimal
+- Explanations should be written in {instruction_language}
+- {"All explanations, instructions, and notes must be fully in " + native_language + " — the learner is a complete beginner and cannot yet follow instruction in " + target_language if teach_in_native else "You MAY include brief clarifying notes in " + native_language + " ONLY when a concept is genuinely ambiguous or likely to cause confusion — keep these minimal"}
 
 ════════════════════════════════════════
 SESSION TYPE
@@ -782,7 +1109,7 @@ This lesson uses reinforcement type: "{reinforcement_type}"
 ════════════════════════════════════════
 STRICT GENERATION RULES
 ════════════════════════════════════════
-1. The lesson must be written in {target_language}.
+1. The lesson must be written in {instruction_language}. {"Explanations and instructions are in " + native_language + " because this is a beginner (A1/HSK1) lesson — example sentences and vocabulary items still appear in " + target_language + "." if teach_in_native else "All content is in " + target_language + "."}
 2. Every section must directly relate to the curriculum node: {topic} at {level}.
 3. Examples must use vocabulary and structures appropriate for {level} — not higher, not lower.
 4. Dialogues must feel natural and contextually relevant to the learner's interests and goal.
@@ -800,8 +1127,8 @@ Return a single valid JSON object with exactly these keys and no others:
 
 {{
   "lesson_title": "<concise title for this lesson>",
-  "introduction": "<1–2 sentences welcoming the learner to this topic, in {target_language}>",
-  "core_explanation": "<clear explanation of the core concept of {topic} at {level}, in {target_language}; brief native-language clarifications allowed if necessary>",
+  "introduction": "<1–2 sentences welcoming the learner to this topic, in {instruction_language}>",
+  "core_explanation": "<clear explanation of the core concept of {topic} at {level}, in {instruction_language}>",
   "examples": [
     {{
       "sentence": "<example sentence in {target_language}>",

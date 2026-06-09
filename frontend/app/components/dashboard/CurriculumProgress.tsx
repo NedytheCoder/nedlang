@@ -5,6 +5,7 @@ import { useTranslation } from "../../../i18n/LanguageProvider"
 
 export interface CurriculumModule {
   id: number
+  moduleOrder: number
   title: string
   status: "completed" | "current" | "locked"
   lessons: number
@@ -66,7 +67,7 @@ export default function CurriculumProgress({ curriculum }: Props) {
               >
                 {/* Status node */}
                 <div className={`relative z-10 w-10 h-10 rounded-full ${style.bg} ${style.ring} flex items-center justify-center text-white text-sm font-bold flex-shrink-0`}>
-                  {module.status === "completed" ? "✓" : module.status === "current" ? module.id : <span className="text-xs">🔒</span>}
+                  {module.status === "completed" ? "✓" : module.status === "current" ? module.moduleOrder : <span className="text-xs">🔒</span>}
                 </div>
 
                 {/* Content */}
@@ -74,7 +75,7 @@ export default function CurriculumProgress({ curriculum }: Props) {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <p className={`text-sm font-semibold ${module.status === "locked" ? "text-slate-400 dark:text-gray-500" : "text-slate-900 dark:text-white"}`}>
-                        {t("dash_curriculum_module")} {module.id}: {module.title}
+                        {t("dash_curriculum_module")} {module.moduleOrder}: {module.title}
                       </p>
                       <p className="text-xs text-slate-500 dark:text-gray-400 mt-0.5">
                         {module.completedLessons}/{module.lessons} {t("dash_curriculum_lessons")}

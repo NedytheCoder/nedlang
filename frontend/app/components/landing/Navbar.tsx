@@ -9,8 +9,8 @@ import { useTranslation } from "../../../i18n/LanguageProvider"
 import type { Lang } from "../../../i18n/LanguageProvider"
 import { GiEarthAfricaEurope } from "react-icons/gi"
 
-const LANG_FLAGS: Record<Lang, string> = { en: "🇬🇧", fr: "🇫🇷", de: "🇩🇪", zh: "🇨🇳" }
-const LANGS: Lang[] = ["en", "fr", "de", "zh"]
+const LANG_FLAGS: Record<Lang, string> = { en: "🇬🇧", fr: "🇫🇷", de: "🇩🇪", zh: "🇨🇳", es: "🇪🇸" }
+const LANGS: Lang[] = ["en", "fr", "de", "zh", "es"]
 
 function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme()

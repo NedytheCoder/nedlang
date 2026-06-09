@@ -95,7 +95,7 @@ export default function GamifiedSection() {
                   <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
                     <FaStar className="w-3.5 h-3.5 text-white" />
                   </div>
-                  <span className="text-slate-900 dark:text-white font-semibold">Level 5</span>
+                  <span className="text-slate-900 dark:text-white font-semibold">{t("ned_gamified_level")} 5</span>
                 </div>
                 <span className="text-sm text-slate-500 dark:text-gray-400">2,450 / 3,000 XP</span>
               </div>

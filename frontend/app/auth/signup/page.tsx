@@ -106,7 +106,7 @@ export default function SignupPage() {
         )
         const { available } = await res.json()
         if (!available) {
-          setErrors({ email: "An account with this email already exists." })
+          setErrors({ email: t("onb_email_taken") })
           return
         }
       } catch {
@@ -151,14 +151,14 @@ export default function SignupPage() {
       })
       const body = await res.json()
       if (!res.ok) {
-        setSubmitError(body.detail ?? "Registration failed. Please try again.")
+        setSubmitError(body.detail ?? t("onb_registration_failed"))
         return
       }
       localStorage.setItem("nedlang_user_id", body.id)
       setLang(data.native_language as "en" | "fr" | "de" | "zh")
       router.push("/reception")
     } catch {
-      setSubmitError("Could not reach the server. Please try again.")
+      setSubmitError(t("onb_server_error"))
     } finally {
       setSubmitting(false)
     }
@@ -247,7 +247,7 @@ export default function SignupPage() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              {isFinal ? (submitting ? "Creating account…" : t("onb_summary_cta")) : `${t("onb_next")} →`}
+              {isFinal ? (submitting ? t("onb_creating_account") : t("onb_summary_cta")) : `${t("onb_next")} →`}
             </motion.button>
           </div>
         </div>

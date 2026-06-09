@@ -35,6 +35,7 @@ interface ComboboxProps {
 }
 
 function LanguageCombobox({ value, onChange, placeholder, error, excludeCode, label, description, languages, loading }: ComboboxProps) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState("")
   const inputRef = useRef<HTMLInputElement>(null)
@@ -74,7 +75,7 @@ function LanguageCombobox({ value, onChange, placeholder, error, excludeCode, la
           } bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white disabled:opacity-60`}
         >
           {loading ? (
-            <span className="text-slate-400 dark:text-gray-500 flex-1">Loading languages…</span>
+            <span className="text-slate-400 dark:text-gray-500 flex-1">{t("onb_lang_loading")}</span>
           ) : selected ? (
             <>
               <span className="text-base">{selected.flag}</span>
@@ -104,13 +105,13 @@ function LanguageCombobox({ value, onChange, placeholder, error, excludeCode, la
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search..."
+                  placeholder={t("onb_lang_search")}
                   className="w-full bg-slate-50 dark:bg-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none"
                 />
               </div>
               <div className="max-h-44 overflow-y-auto">
                 {filtered.length === 0 ? (
-                  <div className="px-4 py-3 text-sm text-slate-400 dark:text-gray-500 text-center">No results</div>
+                  <div className="px-4 py-3 text-sm text-slate-400 dark:text-gray-500 text-center">{t("onb_lang_no_results")}</div>
                 ) : (
                   filtered.map((lang) => (
                     <button

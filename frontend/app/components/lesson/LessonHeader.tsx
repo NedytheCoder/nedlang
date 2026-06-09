@@ -70,7 +70,7 @@ export default function LessonHeader({ title, level, topic, framework, progressC
               {t("dash_hero_progress")}
             </span>
             <span className="text-xs font-medium text-indigo-600 dark:text-indigo-400">
-              {progressCompleted} / {progressTotal} lessons
+              {progressCompleted} / {progressTotal} {t("lesson_lessons")}
             </span>
           </div>
           <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">

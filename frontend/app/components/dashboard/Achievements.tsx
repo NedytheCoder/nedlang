@@ -100,7 +100,7 @@ export default function Achievements({ achievements }: Props) {
         </span>
       </div>
 
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
         {achievements.map((a, i) => (
           <AchievementBadge key={a.id} a={a} index={i} />
         ))}

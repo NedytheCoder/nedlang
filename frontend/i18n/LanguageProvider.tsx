@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react"
 import translations from "./translations"
 
-type Lang = "en" | "fr" | "de" | "zh"
+type Lang = "en" | "fr" | "de" | "zh" | "es"
 
 const STORAGE_KEY = "fc_ui_lang"
 
@@ -35,7 +35,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
       const nav = typeof navigator !== "undefined" ? navigator.language : undefined
       if (nav) {
         const short = nav.split("-")[0]
-        if (short === "fr" || short === "de" || short === "zh") setLangState(short as Lang)
+        if (short === "fr" || short === "de" || short === "zh" || short === "es") setLangState(short as Lang)
       }
     } catch (e) {
       // ignore

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useTranslation } from "../../../i18n/LanguageProvider"
 
 // Maps ISO 639-1 codes to BCP 47 locales for Web Speech API
 const LANG_LOCALE: Record<string, string> = {
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export default function SpeakButton({ text, lang, className = "" }: Props) {
+  const { t } = useTranslation()
   const [speaking, setSpeaking] = useState(false)
 
   const speak = () => {
@@ -49,7 +51,7 @@ export default function SpeakButton({ text, lang, className = "" }: Props) {
     <button
       type="button"
       onClick={speak}
-      title={speaking ? "Stop" : "Listen"}
+      title={speaking ? t("lesson_speak_stop") : t("lesson_speak_listen")}
       className={`flex-shrink-0 flex items-center justify-center w-6 h-6 rounded-md transition-all ${
         speaking
           ? "text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-500/15"

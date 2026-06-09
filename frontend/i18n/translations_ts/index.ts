@@ -6,7 +6,7 @@ import dashboard from "./dashboard"
 import reception from "./reception"
 import lesson from "./lesson"
 
-const LANGS = ["en", "fr", "de", "zh"] as const
+const LANGS = ["en", "fr", "de", "zh", "es"] as const
 
 const translations: Record<string, Record<string, string>> = {}
 

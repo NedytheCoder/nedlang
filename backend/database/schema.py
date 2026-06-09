@@ -21,6 +21,7 @@ _TABLES: list[str] = [
         code        TEXT    UNIQUE NOT NULL,
         name        TEXT    NOT NULL,
         native_name TEXT,
+        framework   TEXT    NOT NULL DEFAULT 'CEFR',
         is_active   INTEGER DEFAULT 1,
         created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
@@ -504,6 +505,7 @@ def create_tables(conn: sqlite3.Connection) -> None:
         cur.execute(ddl)
 
     # ── Column migrations — run before indexes so new columns exist first ──
+    _add_column_if_missing(conn, "languages", "framework", "TEXT NOT NULL DEFAULT 'CEFR'")
     _add_column_if_missing(conn, "users",   "target_level",      "TEXT")
     _add_column_if_missing(conn, "lessons", "module_id",         "INTEGER REFERENCES curriculum_modules(id)")
     _add_column_if_missing(conn, "lessons", "node_id",           "INTEGER REFERENCES curriculum_nodes(id)")

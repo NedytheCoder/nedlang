@@ -43,15 +43,7 @@ class RegistrationRequest(BaseModel):
     daily_goal_minutes: int
 
 
-# ─── Language → framework mapping ────────────────────────────────────────────
-
-_FRAMEWORK: dict[str, str] = {
-    "zh": "HSK",
-    "ja": "JLPT",
-    "ko": "TOPIK",
-}
-# Everything else (en, fr, de, es, pt, it, nl, ar, ru, …) uses CEFR
-_DEFAULT_FRAMEWORK = "CEFR"
+# ─── Framework helpers ────────────────────────────────────────────────────────
 
 _LEVEL_ORDER: dict[str, list[str]] = {
     "CEFR":  ["A1", "A2", "B1", "B2", "C1", "C2"],
@@ -59,10 +51,6 @@ _LEVEL_ORDER: dict[str, list[str]] = {
     "JLPT":  ["N5", "N4", "N3", "N2", "N1"],
     "TOPIK": ["TOPIK1", "TOPIK2", "TOPIK3", "TOPIK4", "TOPIK5", "TOPIK6"],
 }
-
-
-def _framework_for(language_code: str) -> str:
-    return _FRAMEWORK.get(language_code.lower(), _DEFAULT_FRAMEWORK)
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -235,7 +223,9 @@ def register(req: RegistrationRequest):
         username   = _derive_username(conn, req.first_name, req.last_name)
         user_id    = str(uuid.uuid4())
         pw_hash    = _hash_password(req.password)
-        framework  = _framework_for(req.target_language)
+        framework  = conn.execute(
+            "SELECT framework FROM languages WHERE id = ?", (target_id,)
+        ).fetchone()["framework"]
 
         conn.execute(
             """
@@ -552,6 +542,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         curriculum = [
             {
                 "id":               r["id"],
+                "moduleOrder":      r["module_order"],
                 "title":            r["title"],
                 "status":           r["status"],
                 "lessons":          r["total_lessons"],
@@ -565,8 +556,15 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                 LEFT JOIN user_module_progress ump ON ump.module_id = cm.id AND ump.user_id = ?
                 WHERE cm.language_id = (SELECT target_language_id FROM users WHERE id = ?)
                   AND cm.framework   = (SELECT framework             FROM users WHERE id = ?)
+                  AND cm.level       = COALESCE(
+                        (SELECT current_level FROM users WHERE id = ?),
+                        (SELECT level FROM curriculum_modules
+                         WHERE language_id = (SELECT target_language_id FROM users WHERE id = ?)
+                           AND framework   = (SELECT framework FROM users WHERE id = ?)
+                         ORDER BY level, module_order LIMIT 1)
+                      )
                 ORDER BY cm.module_order
-            """, (user_id, user_id, user_id)).fetchall()
+            """, (user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
         ]
 
         # ── Goal percent complete ─────────────────────────────────────────────
@@ -594,7 +592,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             FROM user_module_progress ump
             JOIN curriculum_modules cm ON cm.id = ump.module_id
             WHERE ump.user_id = ? AND ump.status = 'current'
-            ORDER BY cm.module_order LIMIT 1
+            ORDER BY cm.level, cm.module_order LIMIT 1
         """, (user_id,)).fetchone()
 
         if cur_mod:
