@@ -57,7 +57,7 @@ _LEVEL_ORDER: dict[str, list[str]] = {
 
 def _resolve_language_id(conn, code: str) -> int:
     row = conn.execute(
-        "SELECT id FROM languages WHERE code = ?", (code.lower(),)
+        "SELECT id FROM languages WHERE code = %s", (code.lower(),)
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=400, detail=f"Unknown language code: {code}")
@@ -68,7 +68,7 @@ def _resolve_hobby_ids(conn, names: list[str]) -> list[int]:
     ids = []
     for name in names:
         row = conn.execute(
-            "SELECT id FROM hobbies WHERE name = ?", (name,)
+            "SELECT id FROM hobbies WHERE name = %s", (name,)
         ).fetchone()
         if row is None:
             raise HTTPException(status_code=400, detail=f"Unknown hobby: {name}")
@@ -81,7 +81,7 @@ def _derive_username(conn, first: str, last: str) -> str:
     candidate = base
     n = 1
     while conn.execute(
-        "SELECT 1 FROM users WHERE username = ?", (candidate,)
+        "SELECT 1 FROM users WHERE username = %s", (candidate,)
     ).fetchone():
         candidate = f"{base}{n}"
         n += 1
@@ -103,11 +103,11 @@ class SetLevelRequest(BaseModel):
 def set_level(user_id: str, req: SetLevelRequest):
     conn = get_connection()
     try:
-        row = conn.execute("SELECT 1 FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute("SELECT 1 FROM users WHERE id = %s", (user_id,)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="User not found.")
         conn.execute(
-            "UPDATE users SET current_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE users SET current_level = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
             (req.level, user_id),
         )
         conn.commit()
@@ -134,7 +134,7 @@ def get_profile(user_id: str, ui_lang: str = Query(default="en")):
             FROM users u
             JOIN languages nl ON nl.id = u.native_language_id
             JOIN languages tl ON tl.id = u.target_language_id
-            WHERE u.id = ?
+            WHERE u.id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -148,7 +148,7 @@ def get_profile(user_id: str, ui_lang: str = Query(default="en")):
                 """
                 SELECT h.name FROM hobbies h
                 JOIN user_hobbies uh ON uh.hobby_id = h.id
-                WHERE uh.user_id = ?
+                WHERE uh.user_id = %s
                 """,
                 (user_id,),
             ).fetchall()
@@ -185,7 +185,7 @@ def check_email(email: str):
     conn = get_connection()
     try:
         exists = conn.execute(
-            "SELECT 1 FROM users WHERE email = ?", (email.lower(),)
+            "SELECT 1 FROM users WHERE email = %s", (email.lower(),)
         ).fetchone() is not None
         return {"available": not exists}
     finally:
@@ -197,7 +197,7 @@ def login(req: LoginRequest):
     conn = get_connection()
     try:
         row = conn.execute(
-            "SELECT id, username, email, password_hash FROM users WHERE email = ?",
+            "SELECT id, username, email, password_hash FROM users WHERE email = %s",
             (req.email.lower().strip(),),
         ).fetchone()
         if row is None or not _verify_password(req.password, row["password_hash"]):
@@ -213,7 +213,7 @@ def register(req: RegistrationRequest):
     try:
         # Reject duplicate email early with a clear message
         if conn.execute(
-            "SELECT 1 FROM users WHERE email = ?", (req.email,)
+            "SELECT 1 FROM users WHERE email = %s", (req.email,)
         ).fetchone():
             raise HTTPException(status_code=409, detail="An account with this email already exists.")
 
@@ -224,7 +224,7 @@ def register(req: RegistrationRequest):
         user_id    = str(uuid.uuid4())
         pw_hash    = _hash_password(req.password)
         framework  = conn.execute(
-            "SELECT framework FROM languages WHERE id = ?", (target_id,)
+            "SELECT framework FROM languages WHERE id = %s", (target_id,)
         ).fetchone()["framework"]
 
         conn.execute(
@@ -235,7 +235,7 @@ def register(req: RegistrationRequest):
                 learning_goal, selected_motivations,
                 preferred_learning_style, daily_goal_minutes,
                 framework
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 user_id, req.email, username,
@@ -248,7 +248,7 @@ def register(req: RegistrationRequest):
         )
 
         conn.executemany(
-            "INSERT INTO user_hobbies (user_id, hobby_id) VALUES (?, ?)",
+            "INSERT INTO user_hobbies (user_id, hobby_id) VALUES (%s, %s)",
             [(user_id, hid) for hid in hobby_ids],
         )
 
@@ -281,7 +281,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             FROM users u
             JOIN languages nl ON nl.id = u.native_language_id
             JOIN languages tl ON tl.id = u.target_language_id
-            WHERE u.id = ?
+            WHERE u.id = %s
         """, (user_id,)).fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="User not found.")
@@ -291,7 +291,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             for r in conn.execute("""
                 SELECT h.name FROM hobbies h
                 JOIN user_hobbies uh ON uh.hobby_id = h.id
-                WHERE uh.user_id = ?
+                WHERE uh.user_id = %s
             """, (user_id,)).fetchall()
         ]
 
@@ -299,7 +299,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         xp = user["current_xp"] or 0
         xp_row = conn.execute("""
             SELECT xp_required, xp_to_next FROM xp_levels
-            WHERE xp_required <= ? ORDER BY xp_required DESC LIMIT 1
+            WHERE xp_required <= %s ORDER BY xp_required DESC LIMIT 1
         """, (xp,)).fetchone()
         xp_current_level = xp_row["xp_required"] if xp_row else 0
         xp_next_level    = xp_row["xp_to_next"]  if xp_row else 1000
@@ -309,19 +309,20 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
 
         total_study_days = conn.execute("""
             SELECT COUNT(DISTINCT DATE(started_at))
-            FROM learning_sessions WHERE user_id = ?
+            FROM learning_sessions WHERE user_id = %s
         """, (user_id,)).fetchone()[0] or 0
 
         weekly_active_days = conn.execute("""
             SELECT COUNT(DISTINCT DATE(started_at))
             FROM learning_sessions
-            WHERE user_id = ? AND started_at >= DATE('now', '-7 days')
+            -- WHERE user_id = ? AND started_at >= DATE('now', '-7 days')
+            WHERE user_id = %s AND started_at >= CURRENT_DATE - INTERVAL '7 days'
         """, (user_id,)).fetchone()[0] or 0
 
         # ── Streak (computed dynamically from sessions) ───────────────────────
         all_session_days: set[str] = {
             r["day"] for r in conn.execute(
-                "SELECT DISTINCT DATE(started_at) AS day FROM learning_sessions WHERE user_id = ?",
+                "SELECT DISTINCT DATE(started_at) AS day FROM learning_sessions WHERE user_id = %s",
                 (user_id,)
             ).fetchall()
         }
@@ -352,7 +353,8 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         session_rows = conn.execute("""
             SELECT DATE(started_at) AS day, SUM(minutes_spent) AS total_min
             FROM learning_sessions
-            WHERE user_id = ? AND started_at >= DATE('now', '-365 days')
+            -- WHERE user_id = ? AND started_at >= DATE('now', '-365 days')
+            WHERE user_id = %s AND started_at >= CURRENT_DATE - INTERVAL '365 days'
             GROUP BY DATE(started_at)
         """, (user_id,)).fetchall()
         day_map = {r["day"]: r["total_min"] for r in session_rows}
@@ -377,7 +379,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         for skill in skills:
             rows = conn.execute("""
                 SELECT score FROM skill_scores
-                WHERE user_id = ? AND skill = ?
+                WHERE user_id = %s AND skill = %s
                 ORDER BY recorded_at DESC LIMIT 2
             """, (user_id, skill)).fetchall()
             if rows:
@@ -392,14 +394,14 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         earned_map = {
             r["achievement_id"]: r["unlocked_at"]
             for r in conn.execute(
-                "SELECT achievement_id, unlocked_at FROM user_achievements WHERE user_id = ?",
+                "SELECT achievement_id, unlocked_at FROM user_achievements WHERE user_id = %s",
                 (user_id,)
             ).fetchall()
         }
         progress_map = {
             r["achievement_id"]: {"current": r["current_value"], "target": r["target_value"]}
             for r in conn.execute(
-                "SELECT achievement_id, current_value, target_value FROM achievement_progress WHERE user_id = ?",
+                "SELECT achievement_id, current_value, target_value FROM achievement_progress WHERE user_id = %s",
                 (user_id,)
             ).fetchall()
         }
@@ -422,19 +424,20 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                 achievements.append(entry)
 
         # ── Vocabulary ────────────────────────────────────────────────────────
-        vocab_total    = conn.execute("SELECT COUNT(*) FROM vocabulary_items WHERE user_id = ?", (user_id,)).fetchone()[0] or 0
-        vocab_active   = conn.execute("SELECT COUNT(*) FROM vocabulary_items WHERE user_id = ? AND proficiency_score >= 0.3", (user_id,)).fetchone()[0] or 0
+        vocab_total    = conn.execute("SELECT COUNT(*) FROM vocabulary_items WHERE user_id = %s", (user_id,)).fetchone()[0] or 0
+        vocab_active   = conn.execute("SELECT COUNT(*) FROM vocabulary_items WHERE user_id = %s AND proficiency_score >= 0.3", (user_id,)).fetchone()[0] or 0
         retention_row  = conn.execute("""
             SELECT CAST(SUM(times_correct) AS REAL) / NULLIF(SUM(times_seen), 0) * 100
-            FROM vocabulary_items WHERE user_id = ? AND times_seen > 0
+            FROM vocabulary_items WHERE user_id = %s AND times_seen > 0
         """, (user_id,)).fetchone()[0]
         vocab_retention = round(retention_row or 0)
         vocab_new_week  = conn.execute("""
             SELECT COUNT(*) FROM vocabulary_items
-            WHERE user_id = ? AND created_at >= DATE('now', '-7 days')
+            -- WHERE user_id = ? AND created_at >= DATE('now', '-7 days')
+            WHERE user_id = %s AND created_at >= CURRENT_DATE - INTERVAL '7 days'
         """, (user_id,)).fetchone()[0] or 0
         vocab_recent  = [dict(r) for r in conn.execute("""
-            SELECT word, translation FROM vocabulary_items WHERE user_id = ?
+            SELECT word, translation FROM vocabulary_items WHERE user_id = %s
             ORDER BY created_at DESC LIMIT 5
         """, (user_id,)).fetchall()]
         vocab_review  = [dict(r) for r in conn.execute("""
@@ -442,12 +445,12 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                    CASE WHEN proficiency_score < 0.3 THEN 'hard'
                         WHEN proficiency_score < 0.6 THEN 'medium' ELSE 'easy' END AS difficulty
             FROM vocabulary_items
-            WHERE user_id = ? AND next_review_at <= CURRENT_TIMESTAMP
+            WHERE user_id = %s AND next_review_at <= CURRENT_TIMESTAMP
             ORDER BY next_review_at ASC LIMIT 5
         """, (user_id,)).fetchall()]
         vocab_due_count = conn.execute("""
             SELECT COUNT(*) FROM vocabulary_items
-            WHERE user_id = ? AND next_review_at <= CURRENT_TIMESTAMP
+            WHERE user_id = %s AND next_review_at <= CURRENT_TIMESTAMP
         """, (user_id,)).fetchone()[0] or 0
 
         # ── Grammar ───────────────────────────────────────────────────────────
@@ -459,8 +462,8 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                             ELSE 0 END AS progress
                 FROM user_grammar_progress ugp
                 JOIN grammar_topics gt ON gt.id = ugp.topic_id
-                WHERE ugp.user_id = ? AND ugp.status = ?
-                ORDER BY ugp.confidence_score DESC LIMIT ?
+                WHERE ugp.user_id = %s AND ugp.status = %s
+                ORDER BY ugp.confidence_score DESC LIMIT %s
             """, (user_id, status, limit)).fetchall()]
 
         grammar_data = {
@@ -490,7 +493,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             }
             for r in conn.execute("""
                 SELECT assessment_type, estimated_level, score, completed_at
-                FROM assessments WHERE user_id = ? AND completed_at IS NOT NULL
+                FROM assessments WHERE user_id = %s AND completed_at IS NOT NULL
                 ORDER BY completed_at DESC LIMIT 10
             """, (user_id,)).fetchall()
         ]
@@ -504,7 +507,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             for r in conn.execute("""
                 SELECT title, assessment_type, scheduled_at, duration_minutes
                 FROM scheduled_assessments
-                WHERE user_id = ? AND is_completed = 0 AND scheduled_at >= CURRENT_TIMESTAMP
+                WHERE user_id = %s AND is_completed = 0 AND scheduled_at >= CURRENT_TIMESTAMP
                 ORDER BY scheduled_at ASC LIMIT 5
             """, (user_id,)).fetchall()
         ]
@@ -513,20 +516,26 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         stats_row = conn.execute("""
             SELECT
                 COALESCE(SUM(minutes_spent), 0) AS total_min,
-                COALESCE(SUM(CASE WHEN started_at >= DATE('now','-7 days')  THEN minutes_spent ELSE 0 END), 0) AS week_min,
-                COALESCE(SUM(CASE WHEN started_at >= DATE('now','-30 days') THEN minutes_spent ELSE 0 END), 0) AS month_min,
+                -- COALESCE(SUM(CASE WHEN started_at >= DATE('now','-7 days')  THEN minutes_spent ELSE 0 END), 0) AS week_min,
+                -- COALESCE(SUM(CASE WHEN started_at >= DATE('now','-30 days') THEN minutes_spent ELSE 0 END), 0) AS month_min,
+                COALESCE(SUM(CASE WHEN started_at >= CURRENT_DATE - INTERVAL '7 days'  THEN minutes_spent ELSE 0 END), 0) AS week_min,
+                COALESCE(SUM(CASE WHEN started_at >= CURRENT_DATE - INTERVAL '30 days' THEN minutes_spent ELSE 0 END), 0) AS month_min,
                 COUNT(*) AS session_count
-            FROM learning_sessions WHERE user_id = ?
+            FROM learning_sessions WHERE user_id = %s
         """, (user_id,)).fetchone()
-        assessments_completed   = conn.execute("SELECT COUNT(*) FROM assessments WHERE user_id = ? AND completed_at IS NOT NULL", (user_id,)).fetchone()[0] or 0
-        conversations_completed = conn.execute("SELECT COUNT(*) FROM conversations WHERE user_id = ?", (user_id,)).fetchone()[0] or 0
-        lessons_completed       = conn.execute("SELECT COUNT(*) FROM user_lesson_progress WHERE user_id = ? AND status = 'completed'", (user_id,)).fetchone()[0] or 0
+        assessments_completed   = conn.execute("SELECT COUNT(*) FROM assessments WHERE user_id = %s AND completed_at IS NOT NULL", (user_id,)).fetchone()[0] or 0
+        conversations_completed = conn.execute("SELECT COUNT(*) FROM conversations WHERE user_id = %s", (user_id,)).fetchone()[0] or 0
+        lessons_completed       = conn.execute("SELECT COUNT(*) FROM user_lesson_progress WHERE user_id = %s AND status = 'completed'", (user_id,)).fetchone()[0] or 0
         avg_daily = round((stats_row["total_min"] or 0) / total_study_days) if total_study_days > 0 else 0
 
         weekly_raw = conn.execute("""
-            SELECT strftime('%Y-%W', started_at) AS yw, SUM(minutes_spent) AS total_min
+            -- SELECT strftime('%%Y-%%W', started_at) AS yw, SUM(minutes_spent) AS total_min
+            -- FROM learning_sessions
+            -- WHERE user_id = ? AND started_at >= DATE('now', '-49 days')
+            -- GROUP BY yw ORDER BY yw
+            SELECT to_char(started_at, 'IYYY-IW') AS yw, SUM(minutes_spent) AS total_min
             FROM learning_sessions
-            WHERE user_id = ? AND started_at >= DATE('now', '-49 days')
+            WHERE user_id = %s AND started_at >= CURRENT_DATE - INTERVAL '49 days'
             GROUP BY yw ORDER BY yw
         """, (user_id,)).fetchall()
         yw_map = {r["yw"]: (r["total_min"] or 0) / 60 for r in weekly_raw}
@@ -553,14 +562,14 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                        COALESCE(ump.status,'locked') AS status,
                        COALESCE(ump.completed_lessons, 0) AS completed_lessons
                 FROM curriculum_modules cm
-                LEFT JOIN user_module_progress ump ON ump.module_id = cm.id AND ump.user_id = ?
-                WHERE cm.language_id = (SELECT target_language_id FROM users WHERE id = ?)
-                  AND cm.framework   = (SELECT framework             FROM users WHERE id = ?)
+                LEFT JOIN user_module_progress ump ON ump.module_id = cm.id AND ump.user_id = %s
+                WHERE cm.language_id = (SELECT target_language_id FROM users WHERE id = %s)
+                  AND cm.framework   = (SELECT framework             FROM users WHERE id = %s)
                   AND cm.level       = COALESCE(
-                        (SELECT current_level FROM users WHERE id = ?),
+                        (SELECT current_level FROM users WHERE id = %s),
                         (SELECT level FROM curriculum_modules
-                         WHERE language_id = (SELECT target_language_id FROM users WHERE id = ?)
-                           AND framework   = (SELECT framework FROM users WHERE id = ?)
+                         WHERE language_id = (SELECT target_language_id FROM users WHERE id = %s)
+                           AND framework   = (SELECT framework FROM users WHERE id = %s)
                          ORDER BY level, module_order LIMIT 1)
                       )
                 ORDER BY cm.module_order
@@ -575,10 +584,10 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             SELECT COUNT(*) FROM user_lesson_progress ulp
             JOIN lessons l ON l.id = ulp.lesson_id
             JOIN curriculum_modules cm ON cm.id = l.module_id
-            WHERE ulp.user_id = ?
+            WHERE ulp.user_id = %s
               AND ulp.status = 'completed'
-              AND cm.language_id = (SELECT target_language_id FROM users WHERE id = ?)
-              AND cm.framework   = (SELECT framework             FROM users WHERE id = ?)
+              AND cm.language_id = (SELECT target_language_id FROM users WHERE id = %s)
+              AND cm.framework   = (SELECT framework             FROM users WHERE id = %s)
         """, (user_id, user_id, user_id)).fetchone()[0] or 0
         goal_pct = (
             min(100, round(completed_curriculum_lessons / total_curriculum_lessons * 100))
@@ -591,7 +600,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             SELECT cm.id, cm.title
             FROM user_module_progress ump
             JOIN curriculum_modules cm ON cm.id = ump.module_id
-            WHERE ump.user_id = ? AND ump.status = 'current'
+            WHERE ump.user_id = %s AND ump.status = 'current'
             ORDER BY cm.level, cm.module_order LIMIT 1
         """, (user_id,)).fetchone()
 
@@ -601,7 +610,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                 SELECT l.id, l.node_id, l.title, l.lesson_order, l.estimated_minutes
                 FROM user_lesson_progress ulp
                 JOIN lessons l ON l.id = ulp.lesson_id
-                WHERE ulp.user_id = ? AND l.module_id = ? AND ulp.status = 'in_progress'
+                WHERE ulp.user_id = %s AND l.module_id = %s AND ulp.status = 'in_progress'
                 ORDER BY ulp.started_at DESC LIMIT 1
             """, (user_id, cur_mod["id"])).fetchone()
 
@@ -610,10 +619,10 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                 lesson_row = conn.execute("""
                     SELECT l.id, l.node_id, l.title, l.lesson_order, l.estimated_minutes
                     FROM lessons l
-                    WHERE l.user_id = ? AND l.module_id = ?
+                    WHERE l.user_id = %s AND l.module_id = %s
                       AND l.id NOT IN (
                           SELECT lesson_id FROM user_lesson_progress
-                          WHERE user_id = ? AND status = 'completed'
+                          WHERE user_id = %s AND status = 'completed'
                       )
                     ORDER BY l.lesson_order LIMIT 1
                 """, (user_id, cur_mod["id"], user_id)).fetchone()
@@ -622,10 +631,10 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
                 completed_in_module = conn.execute("""
                     SELECT COUNT(*) FROM user_lesson_progress ulp
                     JOIN lessons l ON l.id = ulp.lesson_id
-                    WHERE ulp.user_id = ? AND l.module_id = ? AND ulp.status = 'completed'
+                    WHERE ulp.user_id = %s AND l.module_id = %s AND ulp.status = 'completed'
                 """, (user_id, cur_mod["id"])).fetchone()[0]
                 total_in_module = conn.execute(
-                    "SELECT COUNT(*) FROM lessons WHERE user_id = ? AND module_id = ?",
+                    "SELECT COUNT(*) FROM lessons WHERE user_id = %s AND module_id = %s",
                     (user_id, cur_mod["id"])
                 ).fetchone()[0]
                 current_lesson = {
@@ -640,12 +649,12 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         # ── Next unstarted node ───────────────────────────────────────────────
         next_node_row = conn.execute("""
             SELECT cn.id FROM curriculum_nodes cn
-            WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = ?)
-              AND cn.framework   = (SELECT framework FROM users WHERE id = ?)
-              AND cn.level       = (SELECT current_level  FROM users WHERE id = ?)
+            WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = %s)
+              AND cn.framework   = (SELECT framework FROM users WHERE id = %s)
+              AND cn.level       = (SELECT current_level  FROM users WHERE id = %s)
               AND cn.id NOT IN (
                   SELECT l.node_id FROM lessons l
-                  WHERE l.user_id = ? AND l.node_id IS NOT NULL
+                  WHERE l.user_id = %s AND l.node_id IS NOT NULL
               )
             ORDER BY cn.lesson_order
             LIMIT 1
@@ -657,21 +666,21 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             "vocabulary": [
                 {"word": r["reference"], "typeKey": "dash_error_type_repeated", "count": r["count"]}
                 for r in conn.execute(
-                    "SELECT reference, count FROM error_log WHERE user_id = ? AND error_type = 'vocabulary' ORDER BY count DESC LIMIT 5",
+                    "SELECT reference, count FROM error_log WHERE user_id = %s AND error_type = 'vocabulary' ORDER BY count DESC LIMIT 5",
                     (user_id,)
                 ).fetchall()
             ],
             "grammar": [
                 {"topic": r["reference"], "count": r["count"]}
                 for r in conn.execute(
-                    "SELECT reference, count FROM error_log WHERE user_id = ? AND error_type = 'grammar' ORDER BY count DESC LIMIT 5",
+                    "SELECT reference, count FROM error_log WHERE user_id = %s AND error_type = 'grammar' ORDER BY count DESC LIMIT 5",
                     (user_id,)
                 ).fetchall()
             ],
             "sentenceStructure": [
                 {"pattern": r["reference"], "count": r["count"]}
                 for r in conn.execute(
-                    "SELECT reference, count FROM error_log WHERE user_id = ? AND error_type = 'structure' ORDER BY count DESC LIMIT 5",
+                    "SELECT reference, count FROM error_log WHERE user_id = %s AND error_type = 'structure' ORDER BY count DESC LIMIT 5",
                     (user_id,)
                 ).fetchall()
             ],
@@ -800,7 +809,7 @@ def _compute_skill_weaknesses(
             FROM assessment_responses ar
             JOIN assessment_questions aq ON aq.id = ar.question_id
             JOIN assessments a ON a.id = ar.assessment_id
-            WHERE a.user_id = ? AND ar.is_correct = 0
+            WHERE a.user_id = %s AND ar.is_correct = 0
             GROUP BY aq.question_type
         """, (user_id,)).fetchall()
     }
@@ -812,7 +821,7 @@ def _compute_skill_weaknesses(
     # Derive writing/speaking weaknesses from low placement scores
     for row in conn.execute("""
         SELECT assessment_type, score FROM assessments
-        WHERE user_id = ?
+        WHERE user_id = %s
           AND assessment_type IN ('placement_writing', 'placement_speaking')
         ORDER BY completed_at DESC LIMIT 2
     """, (user_id,)).fetchall():

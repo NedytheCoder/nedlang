@@ -81,6 +81,9 @@ export default function SignupPage() {
   const [dir, setDir] = useState(1)
   const [data, setData] = useState<OnboardingData>(INITIAL_DATA)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [navigating, setNavigating] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [submitError, setSubmitError] = useState("")
   const backendUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
   const handleChange = (updates: Partial<OnboardingData>) => {
@@ -100,6 +103,7 @@ export default function SignupPage() {
     }
 
     if (step === 0) {
+      setNavigating(true)
       try {
         const res = await fetch(
           `${backendUrl}/user/check-email?email=${encodeURIComponent(data.email)}`
@@ -111,6 +115,8 @@ export default function SignupPage() {
         }
       } catch {
         // network error — let it through and the final submit will catch it
+      } finally {
+        setNavigating(false)
       }
     }
 
@@ -124,9 +130,6 @@ export default function SignupPage() {
     setStep((s) => s - 1)
     setErrors({})
   }
-
-  const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState("")
 
   const handleSubmit = async () => {
     setSubmitting(true)
@@ -231,7 +234,7 @@ export default function SignupPage() {
               <motion.button
                 type="button"
                 onClick={handleBack}
-                disabled={submitting}
+                disabled={submitting || navigating}
                 className="px-5 py-2.5 text-sm font-medium text-slate-600 dark:text-gray-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all disabled:opacity-50"
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
@@ -242,12 +245,17 @@ export default function SignupPage() {
             <motion.button
               type="button"
               onClick={isFinal ? handleSubmit : handleNext}
-              disabled={submitting}
-              className="px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 rounded-xl shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all disabled:opacity-60"
+              disabled={submitting || navigating}
+              className="inline-flex items-center gap-2 px-6 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 rounded-xl shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 transition-all disabled:opacity-60"
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
             >
-              {isFinal ? (submitting ? t("onb_creating_account") : t("onb_summary_cta")) : `${t("onb_next")} →`}
+              {(isFinal ? submitting : navigating) && (
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              )}
+              {isFinal
+                ? (submitting ? t("onb_creating_account") : t("onb_summary_cta"))
+                : `${t("onb_next")} →`}
             </motion.button>
           </div>
         </div>

@@ -628,7 +628,7 @@ def save_grading(req: SaveGradingRequest):
     conn = get_connection()
     try:
         user_row = conn.execute(
-            "SELECT framework, target_language_id FROM users WHERE id = ?",
+            "SELECT framework, target_language_id FROM users WHERE id = %s",
             (req.user_id,)
         ).fetchone()
         if not user_row:
@@ -647,7 +647,7 @@ def save_grading(req: SaveGradingRequest):
         current_level = _determine_overall_level(results, framework)
 
         conn.execute(
-            "UPDATE users SET current_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE users SET current_level = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
             (current_level, req.user_id)
         )
 
@@ -665,7 +665,7 @@ def save_grading(req: SaveGradingRequest):
                 INSERT INTO assessments (
                     id, user_id, assessment_type, framework,
                     target_language_id, estimated_level, score, completed_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 """,
                 (
                     assessment_id, req.user_id,
@@ -678,7 +678,7 @@ def save_grading(req: SaveGradingRequest):
             conn.execute(
                 """
                 INSERT INTO skill_scores (id, user_id, skill, score, assessment_id)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (%s, %s, %s, %s, %s)
                 """,
                 (str(uuid.uuid4()), req.user_id, skill, round(float(score), 1), assessment_id)
             )

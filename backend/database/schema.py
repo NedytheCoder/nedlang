@@ -8,7 +8,10 @@ All table definitions, index definitions, and the helper functions:
   drop_tables(conn)     — drop all tables in dependency-safe order
 """
 
-import sqlite3
+# import sqlite3
+
+import psycopg2
+import psycopg2.extras
 
 # ─── TABLE DEFINITIONS ────────────────────────────────────────────────────────
 
@@ -17,7 +20,8 @@ _TABLES: list[str] = [
     # ── languages ─────────────────────────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS languages (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        -- id          SERIAL PRIMARY KEY, -- INTEGER PRIMARY KEY AUTOINCREMENT
+        id          SERIAL PRIMARY KEY,
         code        TEXT    UNIQUE NOT NULL,
         name        TEXT    NOT NULL,
         native_name TEXT,
@@ -44,7 +48,7 @@ _TABLES: list[str] = [
     # Each module contains N lessons and belongs to a specific framework level.
     """
     CREATE TABLE IF NOT EXISTS curriculum_modules (
-        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        id            SERIAL PRIMARY KEY, -- INTEGER PRIMARY KEY AUTOINCREMENT
         language_id   INTEGER NOT NULL,
         framework     TEXT    NOT NULL,
         level         TEXT    NOT NULL,
@@ -63,7 +67,7 @@ _TABLES: list[str] = [
     # language_id. The lesson endpoint resolves node → prompt via this table.
     """
     CREATE TABLE IF NOT EXISTS curriculum_nodes (
-        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+        id                  SERIAL PRIMARY KEY, -- INTEGER PRIMARY KEY AUTOINCREMENT
         language_id         INTEGER NOT NULL,
         module_id           INTEGER NOT NULL,
         framework           TEXT    NOT NULL,
@@ -112,7 +116,7 @@ _TABLES: list[str] = [
     # ── hobbies ───────────────────────────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS hobbies (
-        id   INTEGER PRIMARY KEY AUTOINCREMENT,
+        id   SERIAL PRIMARY KEY, -- INTEGER PRIMARY KEY AUTOINCREMENT
         name TEXT UNIQUE NOT NULL
     )
     """,
@@ -120,7 +124,7 @@ _TABLES: list[str] = [
     # ── motivations ───────────────────────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS motivations (
-        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        id        SERIAL PRIMARY KEY, -- INTEGER PRIMARY KEY AUTOINCREMENT
         label     TEXT UNIQUE NOT NULL,
         is_active INTEGER DEFAULT 1
     )
@@ -260,7 +264,8 @@ _TABLES: list[str] = [
     # Seeded once per language when the curriculum is generated.
     """
     CREATE TABLE IF NOT EXISTS grammar_topics (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        -- id          SERIAL PRIMARY KEY, -- INTEGER PRIMARY KEY AUTOINCREMENT
+        id          SERIAL PRIMARY KEY,
         language_id INTEGER NOT NULL,
         framework   TEXT    NOT NULL,
         level       TEXT    NOT NULL,
@@ -310,7 +315,8 @@ _TABLES: list[str] = [
     # ── achievements ──────────────────────────────────────────────────────────
     """
     CREATE TABLE IF NOT EXISTS achievements (
-        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        -- id          SERIAL PRIMARY KEY, -- INTEGER PRIMARY KEY AUTOINCREMENT
+        id          SERIAL PRIMARY KEY,
         name        TEXT UNIQUE NOT NULL,
         description TEXT,
         xp_reward   INTEGER DEFAULT 0
@@ -479,27 +485,34 @@ _DROP_ORDER: list[str] = [
 # ─── MIGRATION HELPERS ────────────────────────────────────────────────────────
 
 def _add_column_if_missing(
-    conn: sqlite3.Connection,
+    conn: psycopg2.extensions.connection,  # conn: sqlite3.Connection
     table: str,
     column: str,
     definition: str,
 ) -> None:
     """Add a column to an existing table only if it does not already exist."""
-    existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
-    if column not in existing:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    # existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    # if column not in existing:
+    #     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM information_schema.columns WHERE table_name = %s AND column_name = %s",
+        (table, column),
+    )
+    if not cur.fetchone():
+        cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 # ─── PUBLIC HELPERS ───────────────────────────────────────────────────────────
 
-def create_tables(conn: sqlite3.Connection) -> None:
+def create_tables(conn: psycopg2.extensions.connection) -> None:  # conn: sqlite3.Connection
     """
     Create all tables and indexes if they do not already exist.
     Also migrates any missing columns onto tables that were created before
     those columns were added to the schema.
     Idempotent — safe to call on an existing database.
     """
-    conn.execute("PRAGMA foreign_keys = ON")
+    # conn.execute("PRAGMA foreign_keys = ON")  # not needed — PostgreSQL enforces FKs natively
     cur = conn.cursor()
     for ddl in _TABLES:
         cur.execute(ddl)
@@ -518,14 +531,14 @@ def create_tables(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def drop_tables(conn: sqlite3.Connection) -> None:
+def drop_tables(conn: psycopg2.extensions.connection) -> None:  # conn: sqlite3.Connection
     """
     Drop all tables in reverse-dependency order.
     Destroys all data — use only in tests or full resets.
     """
-    conn.execute("PRAGMA foreign_keys = OFF")
+    # conn.execute("PRAGMA foreign_keys = OFF")
     cur = conn.cursor()
     for table in _DROP_ORDER:
         cur.execute(f"DROP TABLE IF EXISTS {table}")
-    conn.execute("PRAGMA foreign_keys = ON")
+    # conn.execute("PRAGMA foreign_keys = ON")
     conn.commit()

@@ -54,7 +54,7 @@ def _get_profile(user_id: str) -> dict | None:
             FROM users u
             JOIN languages nl ON nl.id = u.native_language_id
             JOIN languages tl ON tl.id = u.target_language_id
-            WHERE u.id = ?
+            WHERE u.id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -67,7 +67,7 @@ def _get_profile(user_id: str) -> dict | None:
             """
             SELECT h.name FROM hobbies h
             JOIN user_hobbies uh ON uh.hobby_id = h.id
-            WHERE uh.user_id = ?
+            WHERE uh.user_id = %s
             ORDER BY h.name
             """,
             (user_id,),

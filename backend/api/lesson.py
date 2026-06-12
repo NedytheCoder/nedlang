@@ -42,7 +42,7 @@ def get_lesson(
             SELECT cn.id, cn.module_id, cn.framework, cn.level, cn.lesson_order,
                    cn.topic, cn.skill_focus, cn.learning_objectives
             FROM curriculum_nodes cn
-            WHERE cn.id = ?
+            WHERE cn.id = %s
             """,
             (node_id,),
         ).fetchone()
@@ -59,7 +59,7 @@ def get_lesson(
             FROM users u
             JOIN languages nl ON nl.id = u.native_language_id
             JOIN languages tl ON tl.id = u.target_language_id
-            WHERE u.id = ?
+            WHERE u.id = %s
             """,
             (user_id,),
         ).fetchone()
@@ -71,7 +71,7 @@ def get_lesson(
         effective_level = user["current_level"] or conn.execute(
             """
             SELECT level FROM curriculum_modules
-            WHERE language_id = ? AND framework = ?
+            WHERE language_id = %s AND framework = %s
             ORDER BY level, module_order LIMIT 1
             """,
             (user["target_language_id"], user["framework"]),
@@ -86,14 +86,14 @@ def get_lesson(
         # Check module is unlocked: module_order=1 is always accessible;
         # others require a 'current' or 'completed' row in user_module_progress.
         module_order_row = conn.execute(
-            "SELECT module_order FROM curriculum_modules WHERE id = ?",
+            "SELECT module_order FROM curriculum_modules WHERE id = %s",
             (node["module_id"],),
         ).fetchone()
         module_order = module_order_row["module_order"] if module_order_row else 1
 
         if module_order > 1:
             mod_progress = conn.execute(
-                "SELECT status FROM user_module_progress WHERE user_id = ? AND module_id = ?",
+                "SELECT status FROM user_module_progress WHERE user_id = %s AND module_id = %s",
                 (user_id, node["module_id"]),
             ).fetchone()
             if mod_progress is None or mod_progress["status"] == "locked":
@@ -107,7 +107,7 @@ def get_lesson(
             conn.execute(
                 """
                 INSERT INTO user_module_progress (user_id, module_id, status, completed_lessons, started_at)
-                VALUES (?, ?, 'current', 0, CURRENT_TIMESTAMP)
+                VALUES (%s, %s, 'current', 0, CURRENT_TIMESTAMP)
                 ON CONFLICT(user_id, module_id) DO NOTHING
                 """,
                 (user_id, node["module_id"]),
@@ -119,7 +119,7 @@ def get_lesson(
                 """
                 SELECT h.name FROM hobbies h
                 JOIN user_hobbies uh ON uh.hobby_id = h.id
-                WHERE uh.user_id = ?
+                WHERE uh.user_id = %s
                 """,
                 (user_id,),
             ).fetchall()
@@ -130,7 +130,7 @@ def get_lesson(
         weaknesses: list[str] = []
         strengths: list[str] = []
         for row in conn.execute(
-            "SELECT skill, score FROM skill_scores WHERE user_id = ? ORDER BY recorded_at DESC",
+            "SELECT skill, score FROM skill_scores WHERE user_id = %s ORDER BY recorded_at DESC",
             (user_id,),
         ).fetchall():
             if row["skill"] in seen_skills:
@@ -146,7 +146,7 @@ def get_lesson(
         cached = conn.execute(
             """
             SELECT l.id, l.lesson_json FROM lessons l
-            WHERE l.user_id = ? AND l.node_id = ?
+            WHERE l.user_id = %s AND l.node_id = %s
             ORDER BY l.generated_at DESC LIMIT 1
             """,
             (user_id, node_id),
@@ -157,15 +157,15 @@ def get_lesson(
             """
             SELECT
                 (SELECT COUNT(*) FROM curriculum_nodes
-                 WHERE language_id = (SELECT target_language_id FROM users WHERE id = ?)
-                   AND framework   = (SELECT framework      FROM users WHERE id = ?)
-                   AND level       = (SELECT current_level  FROM users WHERE id = ?)) AS total,
+                 WHERE language_id = (SELECT target_language_id FROM users WHERE id = %s)
+                   AND framework   = (SELECT framework      FROM users WHERE id = %s)
+                   AND level       = (SELECT current_level  FROM users WHERE id = %s)) AS total,
                 (SELECT COUNT(DISTINCT l.node_id) FROM user_lesson_progress ulp
                  JOIN lessons l      ON l.id  = ulp.lesson_id
                  JOIN curriculum_nodes cn ON cn.id = l.node_id
-                 WHERE ulp.user_id = ? AND ulp.status = 'completed'
+                 WHERE ulp.user_id = %s AND ulp.status = 'completed'
                    AND l.node_id IS NOT NULL
-                   AND cn.level = (SELECT current_level FROM users WHERE id = ?)) AS completed
+                   AND cn.level = (SELECT current_level FROM users WHERE id = %s)) AS completed
             """,
             (user_id, user_id, user_id, user_id, user_id),
         ).fetchone()
@@ -174,7 +174,7 @@ def get_lesson(
 
         if cached:
             progress = conn.execute(
-                "SELECT status FROM user_lesson_progress WHERE user_id = ? AND lesson_id = ?",
+                "SELECT status FROM user_lesson_progress WHERE user_id = %s AND lesson_id = %s",
                 (user_id, cached["id"]),
             ).fetchone()
             session_type = (
@@ -245,7 +245,7 @@ def get_lesson(
             INSERT INTO lessons
                 (id, user_id, module_id, node_id, title, framework, lesson_level,
                  skill_focus, lesson_order, estimated_minutes, lesson_json)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 15, ?)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 15, %s)
             """,
             (
                 lesson_id,
@@ -262,7 +262,8 @@ def get_lesson(
         )
 
         conn.execute(
-            "INSERT OR IGNORE INTO user_lesson_progress (user_id, lesson_id, status) VALUES (?, ?, 'in_progress')",
+            # "INSERT OR IGNORE INTO user_lesson_progress (user_id, lesson_id, status) VALUES (%s, %s, 'in_progress')",
+            "INSERT INTO user_lesson_progress (user_id, lesson_id, status) VALUES (%s, %s, 'in_progress') ON CONFLICT DO NOTHING",
             (user_id, lesson_id),
         )
 
@@ -304,13 +305,13 @@ def _next_incomplete_node(conn, user_id: str) -> int | None:
     row = conn.execute(
         """
         SELECT cn.id FROM curriculum_nodes cn
-        WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = ?)
-          AND cn.framework   = (SELECT framework             FROM users WHERE id = ?)
-          AND cn.level       = (SELECT current_level         FROM users WHERE id = ?)
+        WHERE cn.language_id = (SELECT target_language_id FROM users WHERE id = %s)
+          AND cn.framework   = (SELECT framework             FROM users WHERE id = %s)
+          AND cn.level       = (SELECT current_level         FROM users WHERE id = %s)
           AND cn.id NOT IN (
               SELECT l.node_id FROM lessons l
               JOIN user_lesson_progress ulp ON ulp.lesson_id = l.id
-              WHERE l.user_id = ? AND ulp.status = 'completed' AND l.node_id IS NOT NULL
+              WHERE l.user_id = %s AND ulp.status = 'completed' AND l.node_id IS NOT NULL
           )
         ORDER BY cn.lesson_order
         LIMIT 1
@@ -327,7 +328,7 @@ def _award_achievements(conn, user_id: str, bonus_xp_acc: list[int]) -> list[str
     already = {
         r["achievement_id"]
         for r in conn.execute(
-            "SELECT achievement_id FROM user_achievements WHERE user_id = ?", (user_id,)
+            "SELECT achievement_id FROM user_achievements WHERE user_id = %s", (user_id,)
         ).fetchall()
     }
 
@@ -338,12 +339,13 @@ def _award_achievements(conn, user_id: str, bonus_xp_acc: list[int]) -> list[str
         row = ach_by_name.get(name)
         if row and row["id"] not in already:
             conn.execute(
-                "INSERT OR IGNORE INTO user_achievements (user_id, achievement_id) VALUES (?, ?)",
+                # "INSERT OR IGNORE INTO user_achievements (user_id, achievement_id) VALUES (%s, %s)",
+                "INSERT INTO user_achievements (user_id, achievement_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                 (user_id, row["id"]),
             )
             if row["xp_reward"]:
                 conn.execute(
-                    "UPDATE users SET current_xp = current_xp + ? WHERE id = ?",
+                    "UPDATE users SET current_xp = current_xp + %s WHERE id = %s",
                     (row["xp_reward"], user_id),
                 )
                 bonus_xp_acc.append(row["xp_reward"])
@@ -352,7 +354,7 @@ def _award_achievements(conn, user_id: str, bonus_xp_acc: list[int]) -> list[str
 
     # Count completed lessons
     total_completed = conn.execute(
-        "SELECT COUNT(*) FROM user_lesson_progress WHERE user_id = ? AND status = 'completed'",
+        "SELECT COUNT(*) FROM user_lesson_progress WHERE user_id = %s AND status = 'completed'",
         (user_id,),
     ).fetchone()[0]
 
@@ -363,14 +365,15 @@ def _award_achievements(conn, user_id: str, bonus_xp_acc: list[int]) -> list[str
     streak = conn.execute(
         """
         WITH days AS (
-            SELECT DISTINCT date(ended_at) AS d FROM learning_sessions WHERE user_id = ?
+            SELECT DISTINCT date(ended_at) AS d FROM learning_sessions WHERE user_id = %s
             ORDER BY d DESC
         ),
         numbered AS (
             SELECT d, row_number() OVER (ORDER BY d DESC) AS rn FROM days
         )
         SELECT COUNT(*) AS streak FROM numbered
-        WHERE julianday(date('now')) - julianday(d) = rn - 1
+        -- WHERE julianday(date('now')) - julianday(d) = rn - 1
+        WHERE (CURRENT_DATE - d::date) = rn - 1
         """,
         (user_id,),
     ).fetchone()[0] or 0
@@ -382,7 +385,7 @@ def _award_achievements(conn, user_id: str, bonus_xp_acc: list[int]) -> list[str
 
     # Cumulative study time
     total_minutes = conn.execute(
-        "SELECT COALESCE(SUM(minutes_spent), 0) FROM learning_sessions WHERE user_id = ?",
+        "SELECT COALESCE(SUM(minutes_spent), 0) FROM learning_sessions WHERE user_id = %s",
         (user_id,),
     ).fetchone()[0]
     if total_minutes >= 600:   _earn("ten_hours")
@@ -391,10 +394,10 @@ def _award_achievements(conn, user_id: str, bonus_xp_acc: list[int]) -> list[str
 
     # App XP level
     current_xp = conn.execute(
-        "SELECT current_xp FROM users WHERE id = ?", (user_id,)
+        "SELECT current_xp FROM users WHERE id = %s", (user_id,)
     ).fetchone()["current_xp"] or 0
     level_row = conn.execute(
-        "SELECT level_no FROM xp_levels WHERE xp_required <= ? ORDER BY xp_required DESC LIMIT 1",
+        "SELECT level_no FROM xp_levels WHERE xp_required <= %s ORDER BY xp_required DESC LIMIT 1",
         (current_xp,),
     ).fetchone()
     if level_row and level_row["level_no"] >= 5:
@@ -409,7 +412,7 @@ def _sync_module_progress(conn, user_id: str, module_id: int) -> bool:
     Returns True if the module just became fully completed.
     """
     total_nodes = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE module_id = ?", (module_id,)
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE module_id = %s", (module_id,)
     ).fetchone()[0]
 
     completed_count = conn.execute(
@@ -417,13 +420,13 @@ def _sync_module_progress(conn, user_id: str, module_id: int) -> bool:
         SELECT COUNT(DISTINCT l.node_id) FROM lessons l
         JOIN user_lesson_progress ulp ON ulp.lesson_id = l.id
         JOIN curriculum_nodes cn ON cn.id = l.node_id
-        WHERE l.user_id = ? AND cn.module_id = ? AND ulp.status = 'completed'
+        WHERE l.user_id = %s AND cn.module_id = %s AND ulp.status = 'completed'
         """,
         (user_id, module_id),
     ).fetchone()[0]
 
     existing = conn.execute(
-        "SELECT status FROM user_module_progress WHERE user_id = ? AND module_id = ?",
+        "SELECT status FROM user_module_progress WHERE user_id = %s AND module_id = %s",
         (user_id, module_id),
     ).fetchone()
 
@@ -434,10 +437,10 @@ def _sync_module_progress(conn, user_id: str, module_id: int) -> bool:
         conn.execute(
             """
             UPDATE user_module_progress
-               SET completed_lessons = ?,
-                   status = ?,
-                   completed_at = CASE WHEN ? THEN CURRENT_TIMESTAMP ELSE completed_at END
-             WHERE user_id = ? AND module_id = ?
+               SET completed_lessons = %s,
+                   status = %s,
+                   completed_at = CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE completed_at END
+             WHERE user_id = %s AND module_id = %s
             """,
             (completed_count, new_status, module_done, user_id, module_id),
         )
@@ -446,7 +449,7 @@ def _sync_module_progress(conn, user_id: str, module_id: int) -> bool:
             """
             INSERT INTO user_module_progress
                 (user_id, module_id, status, completed_lessons, started_at, completed_at)
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP, %s)
             """,
             (user_id, module_id, new_status, completed_count,
              "CURRENT_TIMESTAMP" if module_done else None),
@@ -461,7 +464,7 @@ def _advance_level_if_done(conn, user_id: str) -> bool:
     Returns True if level was advanced.
     """
     user = conn.execute(
-        "SELECT target_language_id, framework, current_level FROM users WHERE id = ?",
+        "SELECT target_language_id, framework, current_level FROM users WHERE id = %s",
         (user_id,),
     ).fetchone()
     if not user or not user["current_level"]:
@@ -470,7 +473,7 @@ def _advance_level_if_done(conn, user_id: str) -> bool:
     total = conn.execute(
         """
         SELECT COUNT(*) FROM curriculum_nodes
-        WHERE language_id = ? AND framework = ? AND level = ?
+        WHERE language_id = %s AND framework = %s AND level = %s
         """,
         (user["target_language_id"], user["framework"], user["current_level"]),
     ).fetchone()[0]
@@ -480,8 +483,8 @@ def _advance_level_if_done(conn, user_id: str) -> bool:
         SELECT COUNT(DISTINCT l.node_id) FROM lessons l
         JOIN user_lesson_progress ulp ON ulp.lesson_id = l.id
         JOIN curriculum_nodes cn ON cn.id = l.node_id
-        WHERE l.user_id = ?
-          AND cn.language_id = ? AND cn.framework = ? AND cn.level = ?
+        WHERE l.user_id = %s
+          AND cn.language_id = %s AND cn.framework = %s AND cn.level = %s
           AND ulp.status = 'completed'
         """,
         (user_id, user["target_language_id"], user["framework"], user["current_level"]),
@@ -491,7 +494,7 @@ def _advance_level_if_done(conn, user_id: str) -> bool:
         next_lv = _next_level(user["framework"], user["current_level"])
         if next_lv:
             conn.execute(
-                "UPDATE users SET current_level = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                "UPDATE users SET current_level = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
                 (next_lv, user_id),
             )
             return True
@@ -506,7 +509,7 @@ def complete_lesson(
     conn = get_connection()
     try:
         lesson_row = conn.execute(
-            "SELECT id, module_id, estimated_minutes FROM lessons WHERE user_id = ? AND node_id = ? ORDER BY generated_at DESC LIMIT 1",
+            "SELECT id, module_id, estimated_minutes FROM lessons WHERE user_id = %s AND node_id = %s ORDER BY generated_at DESC LIMIT 1",
             (user_id, node_id),
         ).fetchone()
         if lesson_row is None:
@@ -517,13 +520,13 @@ def complete_lesson(
         minutes   = lesson_row["estimated_minutes"] or 15
 
         progress = conn.execute(
-            "SELECT status FROM user_lesson_progress WHERE user_id = ? AND lesson_id = ?",
+            "SELECT status FROM user_lesson_progress WHERE user_id = %s AND lesson_id = %s",
             (user_id, lesson_id),
         ).fetchone()
 
         if progress and progress["status"] == "completed":
             total_xp = conn.execute(
-                "SELECT current_xp FROM users WHERE id = ?", (user_id,)
+                "SELECT current_xp FROM users WHERE id = %s", (user_id,)
             ).fetchone()["current_xp"] or 0
             return {
                 "xp_earned":         0,
@@ -537,18 +540,18 @@ def complete_lesson(
         # ── Mark lesson completed ─────────────────────────────────────────────
         if progress:
             conn.execute(
-                "UPDATE user_lesson_progress SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE user_id = ? AND lesson_id = ?",
+                "UPDATE user_lesson_progress SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE user_id = %s AND lesson_id = %s",
                 (user_id, lesson_id),
             )
         else:
             conn.execute(
-                "INSERT INTO user_lesson_progress (user_id, lesson_id, status, completed_at) VALUES (?, ?, 'completed', CURRENT_TIMESTAMP)",
+                "INSERT INTO user_lesson_progress (user_id, lesson_id, status, completed_at) VALUES (%s, %s, 'completed', CURRENT_TIMESTAMP)",
                 (user_id, lesson_id),
             )
 
         # ── Award lesson XP ───────────────────────────────────────────────────
         conn.execute(
-            "UPDATE users SET current_xp = current_xp + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE users SET current_xp = current_xp + %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
             (_XP_PER_LESSON, user_id),
         )
 
@@ -556,7 +559,7 @@ def complete_lesson(
         conn.execute(
             """
             INSERT INTO learning_sessions (id, user_id, lesson_id, ended_at, minutes_spent, xp_earned)
-            VALUES (?, ?, ?, CURRENT_TIMESTAMP, ?, ?)
+            VALUES (%s, %s, %s, CURRENT_TIMESTAMP, %s, %s)
             """,
             (str(uuid.uuid4()), user_id, lesson_id, minutes, _XP_PER_LESSON),
         )
@@ -574,7 +577,7 @@ def complete_lesson(
                  AND cm2.framework   = cm1.framework
                  AND cm2.level       = cm1.level
                  AND cm2.module_order = cm1.module_order + 1
-                WHERE cm1.id = ?
+                WHERE cm1.id = %s
                 """,
                 (module_id,),
             ).fetchone()
@@ -582,7 +585,7 @@ def complete_lesson(
                 conn.execute(
                     """
                     INSERT INTO user_module_progress (user_id, module_id, status, completed_lessons, started_at)
-                    VALUES (?, ?, 'current', 0, CURRENT_TIMESTAMP)
+                    VALUES (%s, %s, 'current', 0, CURRENT_TIMESTAMP)
                     ON CONFLICT(user_id, module_id) DO UPDATE SET status = 'current'
                     """,
                     (user_id, next_mod["id"]),
@@ -593,14 +596,14 @@ def complete_lesson(
         if level_advanced:
             # Unlock module 1 of the new level
             new_level = conn.execute(
-                "SELECT current_level, target_language_id, framework FROM users WHERE id = ?",
+                "SELECT current_level, target_language_id, framework FROM users WHERE id = %s",
                 (user_id,),
             ).fetchone()
             if new_level:
                 first_new_mod = conn.execute(
                     """
                     SELECT id FROM curriculum_modules
-                    WHERE language_id = ? AND framework = ? AND level = ?
+                    WHERE language_id = %s AND framework = %s AND level = %s
                     ORDER BY module_order LIMIT 1
                     """,
                     (new_level["target_language_id"], new_level["framework"], new_level["current_level"]),
@@ -609,7 +612,7 @@ def complete_lesson(
                     conn.execute(
                         """
                         INSERT INTO user_module_progress (user_id, module_id, status, completed_lessons, started_at)
-                        VALUES (?, ?, 'current', 0, CURRENT_TIMESTAMP)
+                        VALUES (%s, %s, 'current', 0, CURRENT_TIMESTAMP)
                         ON CONFLICT(user_id, module_id) DO UPDATE SET status = 'current'
                         """,
                         (user_id, first_new_mod["id"]),
@@ -623,17 +626,18 @@ def complete_lesson(
                 "SELECT id, xp_reward FROM achievements WHERE name = 'framework_advance'"
             ).fetchone()
             already_has = conn.execute(
-                "SELECT 1 FROM user_achievements WHERE user_id = ? AND achievement_id = ?",
+                "SELECT 1 FROM user_achievements WHERE user_id = %s AND achievement_id = %s",
                 (user_id, ach_row["id"]),
             ).fetchone() if ach_row else None
             if ach_row and not already_has:
                 conn.execute(
-                    "INSERT OR IGNORE INTO user_achievements (user_id, achievement_id) VALUES (?, ?)",
+                    # "INSERT OR IGNORE INTO user_achievements (user_id, achievement_id) VALUES (%s, %s)",
+                "INSERT INTO user_achievements (user_id, achievement_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                     (user_id, ach_row["id"]),
                 )
                 if ach_row["xp_reward"]:
                     conn.execute(
-                        "UPDATE users SET current_xp = current_xp + ? WHERE id = ?",
+                        "UPDATE users SET current_xp = current_xp + %s WHERE id = %s",
                         (ach_row["xp_reward"], user_id),
                     )
                     bonus_xp.append(ach_row["xp_reward"])
@@ -642,7 +646,7 @@ def complete_lesson(
         conn.commit()
 
         total_xp = conn.execute(
-            "SELECT current_xp FROM users WHERE id = ?", (user_id,)
+            "SELECT current_xp FROM users WHERE id = %s", (user_id,)
         ).fetchone()["current_xp"] or 0
 
         return {

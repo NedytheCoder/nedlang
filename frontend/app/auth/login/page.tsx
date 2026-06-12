@@ -113,10 +113,13 @@ export default function LoginPage() {
             <motion.button
               type="submit"
               disabled={submitting}
-              className="w-full py-3 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 mt-2 disabled:opacity-60"
+              className="w-full py-3 inline-flex items-center justify-center gap-2 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold rounded-xl transition-all shadow-lg shadow-indigo-500/20 hover:shadow-indigo-500/30 mt-2 disabled:opacity-60"
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.99 }}
             >
+              {submitting && (
+                <span className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              )}
               {submitting ? "Signing in…" : t("auth_sign_in")}
             </motion.button>
           </form>

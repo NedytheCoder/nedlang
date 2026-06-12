@@ -72,7 +72,13 @@ export default function SpeakingTaskCard({ question, onRecordingComplete, dir }:
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const recorder = new MediaRecorder(stream)
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ].find((t) => MediaRecorder.isTypeSupported(t)) ?? ""
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
       chunksRef.current = []
       recStartRef.current = Date.now()
 

@@ -305,8 +305,9 @@ export default function ConvoChatPage() {
       ])
 
       try {
+        const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "mp4" : "webm"
         const form = new FormData()
-        form.append("audio", blob, "recording.webm")
+        form.append("audio", blob, `recording.${ext}`)
         form.append("history", JSON.stringify(historyRef.current))
 
         const res = await fetch(
@@ -353,7 +354,13 @@ export default function ConvoChatPage() {
     if (sendingRef.current) return
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mr = new MediaRecorder(stream)
+      const mimeType = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/mp4",
+      ].find((t) => MediaRecorder.isTypeSupported(t)) ?? ""
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
       mediaRecorderRef.current = mr
       chunksRef.current = []
       mr.ondataavailable = (e) => {
@@ -361,7 +368,8 @@ export default function ConvoChatPage() {
       }
       mr.onstop = () => {
         stream.getTracks().forEach((t) => t.stop())
-        const blob = new Blob(chunksRef.current, { type: "audio/webm" })
+        const actualType = mr.mimeType || mimeType || "audio/webm"
+        const blob = new Blob(chunksRef.current, { type: actualType })
         if (blob.size > 0) sendVoice(blob)
       }
       mr.start()

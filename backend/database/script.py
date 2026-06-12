@@ -14,14 +14,23 @@ Public API
 """
 
 import json
-import sqlite3
+# import sqlite3
 import os
+
+import psycopg2
+import psycopg2.extras
+from dotenv import load_dotenv
+
 from database.schema import create_tables, drop_tables
+
+load_dotenv()
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
-_DB_DIR  = os.path.dirname(os.path.abspath(__file__))
-DB_PATH  = os.path.join(_DB_DIR, "lingua_ai.db")
+# _DB_DIR  = os.path.dirname(os.path.abspath(__file__))
+# DB_PATH  = os.path.join(_DB_DIR, "lingua_ai.db")
+
+_DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 # ─── Seed data ────────────────────────────────────────────────────────────────
@@ -72,18 +81,54 @@ _MOTIVATIONS: list[str] = [
 
 # ─── Connection ───────────────────────────────────────────────────────────────
 
-def get_connection() -> sqlite3.Connection:
-    """
-    Open (or create) lingua_ai.db and return a connection.
+# def get_connection() -> sqlite3.Connection:
+#     """
+#     Open (or create) lingua_ai.db and return a connection.
+#
+#     - Row factory set to sqlite3.Row for dict-like access.
+#     - Foreign key enforcement enabled on every connection.
+#     """
+#     conn = sqlite3.connect(DB_PATH)
+#     conn.row_factory = sqlite3.Row
+#     conn.execute("PRAGMA foreign_keys = ON")
+#     conn.execute("PRAGMA journal_mode = WAL")   # better concurrent read performance
+#     return conn
 
-    - Row factory set to sqlite3.Row for dict-like access.
-    - Foreign key enforcement enabled on every connection.
+class _Connection:
     """
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    conn.execute("PRAGMA journal_mode = WAL")   # better concurrent read performance
-    return conn
+    Wraps a psycopg2 connection to expose the sqlite3-compatible
+    conn.execute() / conn.executemany() shorthand used throughout the codebase.
+    DictCursor is used so rows support both row["key"] and row[0] access.
+    """
+
+    def __init__(self, conn: psycopg2.extensions.connection) -> None:
+        self._conn = conn
+
+    def execute(self, sql: str, params=None):
+        cur = self._conn.cursor()
+        cur.execute(sql, params or ())
+        return cur
+
+    def executemany(self, sql: str, seq_of_params) -> None:
+        cur = self._conn.cursor()
+        cur.executemany(sql, seq_of_params)
+
+    def cursor(self):
+        return self._conn.cursor()
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+    def close(self) -> None:
+        self._conn.close()
+
+
+def get_connection() -> _Connection:
+    conn = psycopg2.connect(_DATABASE_URL, cursor_factory=psycopg2.extras.DictCursor)
+    return _Connection(conn)
 
 
 # ─── Create / Drop ────────────────────────────────────────────────────────────
@@ -93,7 +138,7 @@ def create_database() -> None:
     conn = get_connection()
     try:
         create_tables(conn)
-        print(f"[db] Tables and indexes created → {DB_PATH}")
+        print(f"[db] Tables and indexes created → {_DATABASE_URL}")
     finally:
         conn.close()
 
@@ -106,7 +151,7 @@ def drop_database() -> None:
     conn = get_connection()
     try:
         drop_tables(conn)
-        print(f"[db] All tables dropped → {DB_PATH}")
+        print(f"[db] All tables dropped → {_DATABASE_URL}")
     finally:
         conn.close()
 
@@ -711,7 +756,7 @@ _FRENCH_A2_NODES: list[tuple[int, int, str, list, list, list]] = [
         ["Use je préférerais to express preference in polite contexts",
          "Apply je préférerais in decision-making conversations"],
         ["Forming the Conditional Present"]),
-    (11, 69, "Pourriez-vous... ?",
+    (11, 69, "Pourriez-vous... %s",
         ["communication"],
         ["Use pourriez-vous to make formal polite requests",
          "Respond appropriately to formal conditional questions"],
@@ -720,7 +765,7 @@ _FRENCH_A2_NODES: list[tuple[int, int, str, list, list, list]] = [
         ["communication"],
         ["Make polite requests using the conditional in various situations",
          "Combine je voudrais and pourriez-vous fluidly in real-life scenarios"],
-        ["Je voudrais...", "Pourriez-vous... ?"]),
+        ["Je voudrais...", "Pourriez-vous... %s"]),
     (11, 71, "Expressing Wishes",
         ["communication"],
         ["Express wishes and desires using j'aimerais and je voudrais",
@@ -3933,7 +3978,7 @@ _GERMAN_A1_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_german_a1_curriculum(conn: sqlite3.Connection) -> None:
+def seed_german_a1_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for German CEFR A1.
     Two-pass: Pass 1 inserts nodes, Pass 2 resolves prereq topic names → IDs
@@ -3948,15 +3993,16 @@ def seed_german_a1_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'A1', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'A1', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _GERMAN_A1_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -3975,16 +4021,17 @@ def seed_german_a1_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'A1', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'A1', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -4000,18 +4047,18 @@ def seed_german_a1_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] German A1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -4410,7 +4457,7 @@ _GERMAN_A2_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_german_a2_curriculum(conn: sqlite3.Connection) -> None:
+def seed_german_a2_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for German CEFR A2.
     Two-pass: Pass 1 inserts nodes, Pass 2 resolves prereq topic names → IDs
@@ -4425,15 +4472,16 @@ def seed_german_a2_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'A2', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'A2', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _GERMAN_A2_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -4452,16 +4500,17 @@ def seed_german_a2_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'A2', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'A2', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -4477,18 +4526,18 @@ def seed_german_a2_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] German A2 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -5056,7 +5105,7 @@ _GERMAN_B1_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_german_b1_curriculum(conn: sqlite3.Connection) -> None:
+def seed_german_b1_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for German CEFR B1.
     Two-pass: Pass 1 inserts nodes, Pass 2 resolves prereq topic names → IDs
@@ -5071,15 +5120,16 @@ def seed_german_b1_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'B1', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'B1', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _GERMAN_B1_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -5098,16 +5148,17 @@ def seed_german_b1_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'B1', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'B1', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -5123,18 +5174,18 @@ def seed_german_b1_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] German B1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -5699,7 +5750,7 @@ _GERMAN_B2_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_german_b2_curriculum(conn: sqlite3.Connection) -> None:
+def seed_german_b2_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for German CEFR B2.
     Two-pass: Pass 1 inserts nodes, Pass 2 resolves prereq topic names → IDs
@@ -5714,15 +5765,16 @@ def seed_german_b2_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'B2', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'B2', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _GERMAN_B2_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -5741,16 +5793,17 @@ def seed_german_b2_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'B2', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'B2', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -5766,18 +5819,18 @@ def seed_german_b2_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] German B2 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -6062,64 +6115,64 @@ _CHINESE_HSK1_NODES: list[tuple[int, int, str, list, list, list]] = [
 
 # ─── Seed helpers ─────────────────────────────────────────────────────────────
 
-def seed_languages(conn: sqlite3.Connection) -> None:
+def seed_languages(conn: psycopg2.extensions.connection) -> None:
     """
     Insert the canonical language list.
     Uses INSERT OR IGNORE so re-running is safe.
     """
     conn.executemany(
-        "INSERT OR IGNORE INTO languages (code, name, native_name, framework) VALUES (?, ?, ?, ?)",
+        "INSERT INTO languages (code, name, native_name, framework) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
         _LANGUAGES,
     )
     # Ensure framework is correct on rows that pre-date the column (migration path)
     conn.executemany(
-        "UPDATE languages SET framework = ? WHERE code = ?",
+        "UPDATE languages SET framework = %s WHERE code = %s",
         [(framework, code) for code, _name, _native, framework in _LANGUAGES],
     )
     print(f"[db] Languages seeded ({len(_LANGUAGES)} rows)")
 
 
-def seed_hobbies(conn: sqlite3.Connection) -> None:
+def seed_hobbies(conn: psycopg2.extensions.connection) -> None:
     """
     Insert the canonical hobby list.
     Uses INSERT OR IGNORE so re-running is safe.
     """
-    sql = "INSERT OR IGNORE INTO hobbies (name) VALUES (?)"
+    sql = "INSERT INTO hobbies (name) VALUES (%s) ON CONFLICT DO NOTHING"
     conn.executemany(sql, [(h,) for h in _HOBBIES])
     print(f"[db] Hobbies seeded ({len(_HOBBIES)} rows)")
 
 
-def seed_motivations(conn: sqlite3.Connection) -> None:
+def seed_motivations(conn: psycopg2.extensions.connection) -> None:
     """
     Insert the canonical motivation list.
     Uses INSERT OR IGNORE so re-running is safe.
     """
-    sql = "INSERT OR IGNORE INTO motivations (label) VALUES (?)"
+    sql = "INSERT INTO motivations (label) VALUES (%s) ON CONFLICT DO NOTHING"
     conn.executemany(sql, [(m,) for m in _MOTIVATIONS])
     print(f"[db] Motivations seeded ({len(_MOTIVATIONS)} rows)")
 
 
-def seed_xp_levels(conn: sqlite3.Connection) -> None:
+def seed_xp_levels(conn: psycopg2.extensions.connection) -> None:
     """
     Insert XP level threshold bands.
     Uses INSERT OR IGNORE so re-running is safe.
     """
-    sql = "INSERT OR IGNORE INTO xp_levels (level_no, label, xp_required, xp_to_next) VALUES (?, ?, ?, ?)"
+    sql = "INSERT INTO xp_levels (level_no, label, xp_required, xp_to_next) VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING"
     conn.executemany(sql, _XP_LEVELS)
     print(f"[db] XP levels seeded ({len(_XP_LEVELS)} rows)")
 
 
-def seed_achievements(conn: sqlite3.Connection) -> None:
+def seed_achievements(conn: psycopg2.extensions.connection) -> None:
     """
     Insert the canonical achievement catalog.
     Uses INSERT OR IGNORE so re-running is safe.
     """
-    sql = "INSERT OR IGNORE INTO achievements (name, description, xp_reward) VALUES (?, ?, ?)"
+    sql = "INSERT INTO achievements (name, description, xp_reward) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING"
     conn.executemany(sql, _ACHIEVEMENTS)
     print(f"[db] Achievements seeded ({len(_ACHIEVEMENTS)} rows)")
 
 
-def seed_french_curriculum(conn: sqlite3.Connection) -> None:
+def seed_french_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for French A1.
     Uses INSERT OR IGNORE — safe to re-run at any time.
@@ -6134,16 +6187,17 @@ def seed_french_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'A1', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'A1', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _FRENCH_A1_MODULES],
     )
 
     # Build unit → module_id map (needed for nodes FK)
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6164,26 +6218,27 @@ def seed_french_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'A1', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'A1', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] French A1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_french_a2_curriculum(conn: sqlite3.Connection) -> None:
+def seed_french_a2_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for French A2.
     Uses INSERT OR IGNORE for modules and nodes, then resolves prerequisites
@@ -6199,15 +6254,16 @@ def seed_french_a2_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'A2', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'A2', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _FRENCH_A2_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6216,10 +6272,11 @@ def seed_french_a2_curriculum(conn: sqlite3.Connection) -> None:
     for unit, lesson_order, topic, skill_focus, objectives, _prereqs in _FRENCH_A2_NODES:
         conn.execute(
             """
-            INSERT OR IGNORE INTO curriculum_nodes
+            INSERT INTO curriculum_nodes
                 (language_id, module_id, framework, level, lesson_order, topic,
                  skill_focus, prerequisites, learning_objectives)
-            VALUES (?, ?, 'CEFR', 'A2', ?, ?, ?, ?, ?)
+            VALUES (%s, %s, 'CEFR', 'A2', %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
             """,
             (
                 lang_id,
@@ -6235,7 +6292,7 @@ def seed_french_a2_curriculum(conn: sqlite3.Connection) -> None:
     # ── Pass 2: resolve prerequisite topic names → node IDs ───────────────────
     # Build topic → node_id map; first occurrence (lowest lesson_order) wins.
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2' ORDER BY lesson_order",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2' ORDER BY lesson_order",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -6249,22 +6306,22 @@ def seed_french_a2_curriculum(conn: sqlite3.Connection) -> None:
         prereq_ids = [topic_to_id[t] for t in prereq_topics if t in topic_to_id]
         if prereq_ids:
             conn.execute(
-                "UPDATE curriculum_nodes SET prerequisites = ? WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2' AND lesson_order = ?",
+                "UPDATE curriculum_nodes SET prerequisites = %s WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2' AND lesson_order = %s",
                 (json.dumps(prereq_ids), lang_id, lesson_order),
             )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] French A2 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_french_b1_curriculum(conn: sqlite3.Connection) -> None:
+def seed_french_b1_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for French B1.
     Pass-2 prerequisite resolution covers ALL French nodes (A1 + A2 + B1)
@@ -6281,15 +6338,16 @@ def seed_french_b1_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'B1', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'B1', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _FRENCH_B1_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6298,10 +6356,11 @@ def seed_french_b1_curriculum(conn: sqlite3.Connection) -> None:
     for unit, lesson_order, topic, skill_focus, objectives, _prereqs in _FRENCH_B1_NODES:
         conn.execute(
             """
-            INSERT OR IGNORE INTO curriculum_nodes
+            INSERT INTO curriculum_nodes
                 (language_id, module_id, framework, level, lesson_order, topic,
                  skill_focus, prerequisites, learning_objectives)
-            VALUES (?, ?, 'CEFR', 'B1', ?, ?, ?, ?, ?)
+            VALUES (%s, %s, 'CEFR', 'B1', %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
             """,
             (
                 lang_id,
@@ -6318,7 +6377,7 @@ def seed_french_b1_curriculum(conn: sqlite3.Connection) -> None:
     # Query ALL French nodes (A1 + A2 + B1) ordered by id so earlier-inserted
     # nodes (A1/A2) take priority when the same topic name appears in multiple levels.
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -6332,22 +6391,22 @@ def seed_french_b1_curriculum(conn: sqlite3.Connection) -> None:
         prereq_ids = [topic_to_id[t] for t in prereq_topics if t in topic_to_id]
         if prereq_ids:
             conn.execute(
-                "UPDATE curriculum_nodes SET prerequisites = ? WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1' AND lesson_order = ?",
+                "UPDATE curriculum_nodes SET prerequisites = %s WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1' AND lesson_order = %s",
                 (json.dumps(prereq_ids), lang_id, lesson_order),
             )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] French B1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_french_b2_curriculum(conn: sqlite3.Connection) -> None:
+def seed_french_b2_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for French B2.
     Pass-2 prerequisite resolution covers ALL French nodes (A1 + A2 + B1 + B2)
@@ -6364,15 +6423,16 @@ def seed_french_b2_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'B2', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'B2', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _FRENCH_B2_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6381,10 +6441,11 @@ def seed_french_b2_curriculum(conn: sqlite3.Connection) -> None:
     for unit, lesson_order, topic, skill_focus, objectives, _prereqs in _FRENCH_B2_NODES:
         conn.execute(
             """
-            INSERT OR IGNORE INTO curriculum_nodes
+            INSERT INTO curriculum_nodes
                 (language_id, module_id, framework, level, lesson_order, topic,
                  skill_focus, prerequisites, learning_objectives)
-            VALUES (?, ?, 'CEFR', 'B2', ?, ?, ?, ?, ?)
+            VALUES (%s, %s, 'CEFR', 'B2', %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
             """,
             (
                 lang_id,
@@ -6401,7 +6462,7 @@ def seed_french_b2_curriculum(conn: sqlite3.Connection) -> None:
     # Query ALL French nodes (A1 + A2 + B1 + B2) ordered by id so earlier-inserted
     # nodes take priority when the same topic name appears in multiple levels.
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -6415,22 +6476,22 @@ def seed_french_b2_curriculum(conn: sqlite3.Connection) -> None:
         prereq_ids = [topic_to_id[t] for t in prereq_topics if t in topic_to_id]
         if prereq_ids:
             conn.execute(
-                "UPDATE curriculum_nodes SET prerequisites = ? WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2' AND lesson_order = ?",
+                "UPDATE curriculum_nodes SET prerequisites = %s WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2' AND lesson_order = %s",
                 (json.dumps(prereq_ids), lang_id, lesson_order),
             )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] French B2 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_spanish_curriculum(conn: sqlite3.Connection) -> None:
+def seed_spanish_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Spanish A1.
     Uses INSERT OR IGNORE — safe to re-run.
@@ -6445,15 +6506,16 @@ def seed_spanish_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'A1', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'A1', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _SPANISH_A1_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6473,26 +6535,27 @@ def seed_spanish_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'A1', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'A1', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A1'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'A1'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Spanish A1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_spanish_a2_curriculum(conn: sqlite3.Connection) -> None:
+def seed_spanish_a2_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Spanish A2.
     Pass 2 queries ALL Spanish nodes (A1 + A2) ordered by id so that
@@ -6509,15 +6572,16 @@ def seed_spanish_a2_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'A2', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'A2', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _SPANISH_A2_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6537,17 +6601,18 @@ def seed_spanish_a2_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'A2', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'A2', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     # ── Pass 2: resolve prereq topic names → node IDs (all Spanish nodes) ────
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -6563,24 +6628,24 @@ def seed_spanish_a2_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'A2'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'A2'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Spanish A2 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_spanish_b1_curriculum(conn: sqlite3.Connection) -> None:
+def seed_spanish_b1_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Spanish B1.
     Pass 2 queries ALL Spanish nodes (A1 + A2 + B1) ordered by id so that
@@ -6597,15 +6662,16 @@ def seed_spanish_b1_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'B1', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'B1', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _SPANISH_B1_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6625,17 +6691,18 @@ def seed_spanish_b1_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'B1', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'B1', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     # ── Pass 2: resolve prereq topic names → node IDs (all Spanish nodes) ────
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -6651,24 +6718,24 @@ def seed_spanish_b1_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'B1'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'B1'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Spanish B1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_spanish_b2_curriculum(conn: sqlite3.Connection) -> None:
+def seed_spanish_b2_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Spanish B2.
     Pass 2 queries ALL Spanish nodes (A1 + A2 + B1 + B2) ordered by id so that
@@ -6685,15 +6752,16 @@ def seed_spanish_b2_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'CEFR', 'B2', ?, ?, ?, ?)
+        VALUES (%s, 'CEFR', 'B2', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _SPANISH_B2_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6713,17 +6781,18 @@ def seed_spanish_b2_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'CEFR', 'B2', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'CEFR', 'B2', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     # ── Pass 2: resolve prereq topic names → node IDs (all Spanish nodes) ────
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -6739,24 +6808,24 @@ def seed_spanish_b2_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'CEFR' AND level = 'B2'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'CEFR' AND level = 'B2'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Spanish B2 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
 
 
-def seed_chinese_hsk1_curriculum(conn: sqlite3.Connection) -> None:
+def seed_chinese_hsk1_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Chinese HSK 1.
     Uses framework='HSK' and level='HSK1'.
@@ -6773,15 +6842,16 @@ def seed_chinese_hsk1_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'HSK', 'HSK1', ?, ?, ?, ?)
+        VALUES (%s, 'HSK', 'HSK1', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _CHINESE_HSK1_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK1'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK1'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -6801,17 +6871,18 @@ def seed_chinese_hsk1_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'HSK', 'HSK1', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'HSK', 'HSK1', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     # ── Pass 2: resolve prereq topic names → node IDs (all HSK Chinese nodes) ─
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -6827,18 +6898,18 @@ def seed_chinese_hsk1_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK1' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK1' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK1'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK1'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK1'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK1'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Chinese HSK 1 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -7264,7 +7335,7 @@ _CHINESE_HSK2_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_chinese_hsk2_curriculum(conn: sqlite3.Connection) -> None:
+def seed_chinese_hsk2_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Chinese HSK 2.
     Uses framework='HSK' and level='HSK2'.
@@ -7281,15 +7352,16 @@ def seed_chinese_hsk2_curriculum(conn: sqlite3.Connection) -> None:
     # ── Modules ───────────────────────────────────────────────────────────────
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'HSK', 'HSK2', ?, ?, ?, ?)
+        VALUES (%s, 'HSK', 'HSK2', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _CHINESE_HSK2_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK2'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK2'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -7309,17 +7381,18 @@ def seed_chinese_hsk2_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'HSK', 'HSK2', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'HSK', 'HSK2', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     # ── Pass 2: resolve prereq topic names → node IDs (all HSK Chinese nodes) ─
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -7335,18 +7408,18 @@ def seed_chinese_hsk2_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK2' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK2' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK2'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK2'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK2'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK2'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Chinese HSK 2 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -8109,7 +8182,7 @@ _CHINESE_HSK3_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_chinese_hsk3_curriculum(conn: sqlite3.Connection) -> None:
+def seed_chinese_hsk3_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Chinese HSK 3.
     Uses framework='HSK' and level='HSK3'.
@@ -8125,15 +8198,16 @@ def seed_chinese_hsk3_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'HSK', 'HSK3', ?, ?, ?, ?)
+        VALUES (%s, 'HSK', 'HSK3', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _CHINESE_HSK3_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK3'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK3'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -8152,16 +8226,17 @@ def seed_chinese_hsk3_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'HSK', 'HSK3', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'HSK', 'HSK3', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -8177,18 +8252,18 @@ def seed_chinese_hsk3_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK3' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK3' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK3'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK3'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK3'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK3'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Chinese HSK 3 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -9036,7 +9111,7 @@ _CHINESE_HSK4_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_chinese_hsk4_curriculum(conn: sqlite3.Connection) -> None:
+def seed_chinese_hsk4_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Chinese HSK 4.
     Two-pass: Pass 1 inserts nodes, Pass 2 resolves prereq topic names → IDs
@@ -9051,15 +9126,16 @@ def seed_chinese_hsk4_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'HSK', 'HSK4', ?, ?, ?, ?)
+        VALUES (%s, 'HSK', 'HSK4', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _CHINESE_HSK4_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK4'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK4'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -9078,16 +9154,17 @@ def seed_chinese_hsk4_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'HSK', 'HSK4', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'HSK', 'HSK4', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -9103,18 +9180,18 @@ def seed_chinese_hsk4_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK4' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK4' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK4'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK4'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK4'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK4'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Chinese HSK 4 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -9574,7 +9651,7 @@ _CHINESE_HSK5_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_chinese_hsk5_curriculum(conn: sqlite3.Connection) -> None:
+def seed_chinese_hsk5_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Chinese HSK 5.
     Two-pass: Pass 1 inserts nodes, Pass 2 resolves prereq topic names → IDs
@@ -9589,15 +9666,16 @@ def seed_chinese_hsk5_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'HSK', 'HSK5', ?, ?, ?, ?)
+        VALUES (%s, 'HSK', 'HSK5', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _CHINESE_HSK5_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK5'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK5'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -9616,16 +9694,17 @@ def seed_chinese_hsk5_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'HSK', 'HSK5', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'HSK', 'HSK5', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -9641,18 +9720,18 @@ def seed_chinese_hsk5_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK5' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK5' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK5'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK5'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK5'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK5'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Chinese HSK 5 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -10040,7 +10119,7 @@ _CHINESE_HSK6_NODES: list[tuple[int, int, str, list, list, list]] = [
 ]
 
 
-def seed_chinese_hsk6_curriculum(conn: sqlite3.Connection) -> None:
+def seed_chinese_hsk6_curriculum(conn: psycopg2.extensions.connection) -> None:
     """
     Seed curriculum_modules and curriculum_nodes for Chinese HSK 6.
     Two-pass: Pass 1 inserts nodes, Pass 2 resolves prereq topic names → IDs
@@ -10055,15 +10134,16 @@ def seed_chinese_hsk6_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_modules
+        INSERT INTO curriculum_modules
             (language_id, framework, level, module_order, title, description, total_lessons)
-        VALUES (?, 'HSK', 'HSK6', ?, ?, ?, ?)
+        VALUES (%s, 'HSK', 'HSK6', %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         [(lang_id, order, title, desc, total) for order, title, desc, total in _CHINESE_HSK6_MODULES],
     )
 
     module_rows = conn.execute(
-        "SELECT id, module_order FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK6'",
+        "SELECT id, module_order FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK6'",
         (lang_id,),
     ).fetchall()
     unit_to_module_id: dict[int, int] = {r["module_order"]: r["id"] for r in module_rows}
@@ -10082,16 +10162,17 @@ def seed_chinese_hsk6_curriculum(conn: sqlite3.Connection) -> None:
 
     conn.executemany(
         """
-        INSERT OR IGNORE INTO curriculum_nodes
+        INSERT INTO curriculum_nodes
             (language_id, module_id, framework, level, lesson_order, topic,
              skill_focus, prerequisites, learning_objectives)
-        VALUES (?, ?, 'HSK', 'HSK6', ?, ?, ?, ?, ?)
+        VALUES (%s, %s, 'HSK', 'HSK6', %s, %s, %s, %s, %s)
+        ON CONFLICT DO NOTHING
         """,
         rows,
     )
 
     node_rows = conn.execute(
-        "SELECT id, topic FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' ORDER BY id",
+        "SELECT id, topic FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' ORDER BY id",
         (lang_id,),
     ).fetchall()
     topic_to_id: dict[str, int] = {}
@@ -10107,18 +10188,18 @@ def seed_chinese_hsk6_curriculum(conn: sqlite3.Connection) -> None:
         conn.execute(
             """
             UPDATE curriculum_nodes
-               SET prerequisites = ?
-             WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK6' AND topic = ?
+               SET prerequisites = %s
+             WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK6' AND topic = %s
             """,
             (json.dumps(prereq_ids), lang_id, topic),
         )
 
     modules_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK6'",
+        "SELECT COUNT(*) FROM curriculum_modules WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK6'",
         (lang_id,)
     ).fetchone()[0]
     nodes_inserted = conn.execute(
-        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = ? AND framework = 'HSK' AND level = 'HSK6'",
+        "SELECT COUNT(*) FROM curriculum_nodes WHERE language_id = %s AND framework = 'HSK' AND level = 'HSK6'",
         (lang_id,)
     ).fetchone()[0]
     print(f"[db] Chinese HSK 6 curriculum seeded ({modules_inserted} modules, {nodes_inserted} nodes)")
@@ -10135,7 +10216,8 @@ def initialize_database() -> None:
     3. Seed reference data (languages, hobbies, motivations, xp_levels, achievements)
     4. Commit and close
     """
-    print(f"[db] Initializing database at {DB_PATH}")
+    # print(f"[db] Initializing database at {DB_PATH}")
+    print(f"[db] Initializing database at {_DATABASE_URL}")
     conn = get_connection()
     try:
         create_tables(conn)
