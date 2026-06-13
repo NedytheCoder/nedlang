@@ -49,7 +49,8 @@ class SpeakingGradingRequest(BaseModel):
 
 
 class SaveGradingRequest(BaseModel):
-    user_id: str
+    user_id:    str
+    session_id: str
     reading:   dict | None = None
     listening: dict | None = None
     writing:   dict | None = None
@@ -664,13 +665,15 @@ def save_grading(req: SaveGradingRequest):
                 """
                 INSERT INTO assessments (
                     id, user_id, assessment_type, framework,
-                    target_language_id, estimated_level, score, completed_at
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    target_language_id, estimated_level, score,
+                    session_id, feedback_json, completed_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
                 """,
                 (
                     assessment_id, req.user_id,
                     f"placement_{skill}", framework,
                     target_language_id, estimated_level, round(float(score), 1),
+                    req.session_id, json.dumps(result),
                 )
             )
 
@@ -698,5 +701,49 @@ def save_grading(req: SaveGradingRequest):
     except Exception as exc:
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+    finally:
+        conn.close()
+
+
+# ─── FETCH SESSION RESULTS ────────────────────────────────────────────────────
+
+@router.get("/session/{session_id}")
+def get_session_results(session_id: str):
+    """
+    Return the full grading results for a completed assessment session.
+    Groups all 4 skill rows by session_id and returns feedback_json per skill.
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT assessment_type, estimated_level, score, feedback_json, completed_at
+            FROM assessments
+            WHERE session_id = %s
+            ORDER BY completed_at
+            """,
+            (session_id,),
+        ).fetchall()
+
+        if not rows:
+            raise HTTPException(status_code=404, detail="Session not found.")
+
+        skills: dict[str, dict] = {}
+        completed_at = None
+        for row in rows:
+            skill = row["assessment_type"].replace("placement_", "")
+            feedback = json.loads(row["feedback_json"]) if row["feedback_json"] else {}
+            skills[skill] = {
+                "estimated_level": row["estimated_level"],
+                "score":           row["score"],
+                **feedback,
+            }
+            completed_at = row["completed_at"]
+
+        return {
+            "session_id":   session_id,
+            "completed_at": str(completed_at) if completed_at else None,
+            "skills":       skills,
+        }
     finally:
         conn.close()

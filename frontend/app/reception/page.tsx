@@ -13,6 +13,7 @@ import LevelSelection, { StartMode } from "../components/reception/LevelSelectio
 import WhatsNext from "../components/reception/WhatsNext"
 import PersonalizationProfile from "../components/reception/PersonalizationProfile"
 import { GiEarthAfricaEurope } from "react-icons/gi"
+import { getSession, clearSession, isExpired, currentSkill } from "../lib/testSession"
 
 const FLAG_MAP: Record<string, string> = {
   ar: "🇸🇦", zh: "🇨🇳", nl: "🇳🇱", en: "🇬🇧",
@@ -31,6 +32,8 @@ export default function ReceptionPage() {
   const [user, setUser] = useState<ReceptionUser | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [sessionState, setSessionState] = useState<"none" | "resume" | "expired">("none")
+  const [resumeSkill, setResumeSkill] = useState<string | null>(null)
 
   useEffect(() => {
     const userId = localStorage.getItem("nedlang_user_id")
@@ -38,6 +41,21 @@ export default function ReceptionPage() {
     if (!userId) {
       router.replace("/auth/signup")
       return
+    }
+
+    // Check for an existing test session in localStorage
+    const session = getSession()
+    if (session) {
+      if (isExpired(session)) {
+        clearSession()
+        setSessionState("expired")
+      } else {
+        const skill = currentSkill(session)
+        if (skill !== "complete") {
+          setResumeSkill(skill)
+          setSessionState("resume")
+        }
+      }
     }
     fetch(`${BACKEND_URL}/user/profile/${userId}?ui_lang=${uiLang}`)
       .then((r) => {
@@ -146,6 +164,63 @@ export default function ReceptionPage() {
 
         {/* 5 — Personalization profile */}
         <PersonalizationProfile user={user} />
+
+        {/* Session expired banner */}
+        <AnimatePresence>
+          {sessionState === "expired" && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-2xl p-5"
+            >
+              <p className="font-semibold text-amber-800 dark:text-amber-300 text-sm mb-1">
+                ⏱ {t("assess_session_expired_title")}
+              </p>
+              <p className="text-amber-700 dark:text-amber-400 text-xs">
+                {t("assess_session_expired_desc")}
+              </p>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Session resume banner */}
+        <AnimatePresence>
+          {sessionState === "resume" && resumeSkill && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 rounded-2xl p-5"
+            >
+              <p className="font-semibold text-indigo-800 dark:text-indigo-300 text-sm mb-1">
+                📋 {t("assess_session_resume_title")}
+              </p>
+              <p className="text-indigo-700 dark:text-indigo-400 text-xs mb-4">
+                {t("assess_session_resume_desc")}<br />
+                <span className="font-medium">{t("assess_session_resume_skill")} {resumeSkill}.</span>
+              </p>
+              <div className="flex gap-2">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => router.push(`/reception/${resumeSkill}`)}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-indigo-600 to-violet-600 text-white text-sm font-semibold rounded-xl shadow-lg shadow-indigo-500/20"
+                >
+                  {t("assess_session_resume_cta")}
+                </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => { clearSession(); setSessionState("none"); setResumeSkill(null) }}
+                  className="px-4 py-2.5 text-sm font-medium text-slate-600 dark:text-gray-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-xl transition-all"
+                >
+                  {t("assess_session_discard")}
+                </motion.button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* 6 — CTA section */}
         <motion.div

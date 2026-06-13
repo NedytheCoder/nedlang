@@ -518,12 +518,14 @@ def create_tables(conn: psycopg2.extensions.connection) -> None:  # conn: sqlite
         cur.execute(ddl)
 
     # ── Column migrations — run before indexes so new columns exist first ──
-    _add_column_if_missing(conn, "languages", "framework", "TEXT NOT NULL DEFAULT 'CEFR'")
-    _add_column_if_missing(conn, "users",   "target_level",      "TEXT")
-    _add_column_if_missing(conn, "lessons", "module_id",         "INTEGER REFERENCES curriculum_modules(id)")
-    _add_column_if_missing(conn, "lessons", "node_id",           "INTEGER REFERENCES curriculum_nodes(id)")
-    _add_column_if_missing(conn, "lessons", "estimated_minutes", "INTEGER")
-    _add_column_if_missing(conn, "lessons", "lesson_order",      "INTEGER")
+    _add_column_if_missing(conn, "languages",    "framework",     "TEXT NOT NULL DEFAULT 'CEFR'")
+    _add_column_if_missing(conn, "users",        "target_level",  "TEXT")
+    _add_column_if_missing(conn, "lessons",      "module_id",     "INTEGER REFERENCES curriculum_modules(id)")
+    _add_column_if_missing(conn, "lessons",      "node_id",       "INTEGER REFERENCES curriculum_nodes(id)")
+    _add_column_if_missing(conn, "lessons",      "estimated_minutes", "INTEGER")
+    _add_column_if_missing(conn, "lessons",      "lesson_order",  "INTEGER")
+    _add_column_if_missing(conn, "assessments",  "session_id",    "TEXT")
+    _add_column_if_missing(conn, "assessments",  "feedback_json", "TEXT")
 
     for idx in _INDEXES:
         cur.execute(idx)

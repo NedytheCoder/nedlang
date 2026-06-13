@@ -10,6 +10,7 @@ import AssessmentLoader from "../../components/test_components/AssessmentLoader"
 import ProgressTracker from "../../components/test_components/ProgressTracker"
 import SpeakingTaskCard from "../../components/test_components/SpeakingTaskCard"
 import { SpeakingQuestion, SpeakingResponse } from "../../components/test_components/types"
+import { updateSkillQuestions, completeSkill } from "../../lib/testSession"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -72,7 +73,7 @@ export default function SpeakingPage() {
       .then((data: SpeakingQuestion[]) => {
         if (!Array.isArray(data) || data.length === 0) { setPageState("error"); return }
         questionsRef.current = data
-        console.log("Speaking questions:", data)
+        updateSkillQuestions("speaking", data)
         setLoadProgress(100)
         setTimeout(() => {
           setQuestions(data)
@@ -100,17 +101,17 @@ export default function SpeakingPage() {
 
     const isFinal = currentIndex === questions.length - 1
     if (isFinal) {
-      console.log("Speaking responses:", updatedResponses)
+      // Audio data is too large for localStorage — keep sessionStorage for grading page
       sessionStorage.setItem("speaking_questions", JSON.stringify(questionsRef.current))
       try {
         sessionStorage.setItem("speaking_responses", JSON.stringify(updatedResponses))
       } catch {
-        // Quota exceeded — store without audio bytes; speaking grading will skip transcription
         sessionStorage.setItem(
           "speaking_responses",
           JSON.stringify(updatedResponses.map((r) => ({ questionId: r.questionId, audio_b64: "", duration_seconds: r.duration_seconds })))
         )
       }
+      completeSkill("speaking")
       router.push("/reception/grading")
       return
     }

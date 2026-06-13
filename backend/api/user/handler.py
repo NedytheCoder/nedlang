@@ -320,7 +320,9 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         """, (user_id,)).fetchone()[0] or 0
 
         # ── Streak (computed dynamically from sessions) ───────────────────────
-        all_session_days: set[str] = {
+        # Postgres DATE(...) returns datetime.date objects — keep them as dates,
+        # do not round-trip through ISO strings.
+        all_session_days: set = {
             r["day"] for r in conn.execute(
                 "SELECT DISTINCT DATE(started_at) AS day FROM learning_sessions WHERE user_id = %s",
                 (user_id,)
@@ -328,10 +330,10 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         }
 
         # Count back from today; if no session today allow starting from yesterday
-        streak_start = today if today.isoformat() in all_session_days else today - timedelta(days=1)
+        streak_start = today if today in all_session_days else today - timedelta(days=1)
         current_streak = 0
         d = streak_start
-        while d.isoformat() in all_session_days:
+        while d in all_session_days:
             current_streak += 1
             d -= timedelta(days=1)
 
@@ -341,7 +343,7 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
             run = 1
             longest_streak = 1
             for i in range(1, len(sorted_days)):
-                gap = (date_obj.fromisoformat(sorted_days[i]) - date_obj.fromisoformat(sorted_days[i - 1])).days
+                gap = (sorted_days[i] - sorted_days[i - 1]).days
                 if gap == 1:
                     run += 1
                     if run > longest_streak:
@@ -360,8 +362,8 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         day_map = {r["day"]: r["total_min"] for r in session_rows}
         heatmap = []
         for i in range(364, -1, -1):
-            day_str = (today - timedelta(days=i)).isoformat()
-            mins    = day_map.get(day_str) or 0
+            day  = today - timedelta(days=i)
+            mins = day_map.get(day) or 0
             if   mins == 0:  heatmap.append(0)
             elif mins < 15:  heatmap.append(1)
             elif mins < 30:  heatmap.append(2)
@@ -408,11 +410,13 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         achievements = []
         for a in all_ach:
             if a["id"] in earned_map:
-                ts = earned_map[a["id"]] or ""
+                ts = earned_map[a["id"]]
                 try:
-                    earned_date = datetime.fromisoformat(ts.split(".")[0]).strftime("%b %Y")
+                    if isinstance(ts, str):
+                        ts = datetime.fromisoformat(ts.split(".")[0])
+                    earned_date = ts.strftime("%b %Y") if ts else ""
                 except Exception:
-                    earned_date = ts[:7]
+                    earned_date = ""
                 achievements.append({"id": a["name"], "earned": True, "earnedDate": earned_date})
             else:
                 entry: dict = {"id": a["name"], "earned": False}
@@ -473,10 +477,14 @@ def get_dashboard(user_id: str, ui_lang: str = Query(default="en")):
         }
 
         # ── Assessment history ────────────────────────────────────────────────
-        def _fmt_date(ts: str | None) -> str:
+        def _fmt_date(ts) -> str:
             if not ts: return ""
-            try: return datetime.fromisoformat(ts.split(".")[0]).strftime("%b %d, %Y")
-            except Exception: return (ts or "")[:10]
+            try:
+                if isinstance(ts, str):
+                    ts = datetime.fromisoformat(ts.split(".")[0])
+                return ts.strftime("%b %d, %Y")
+            except Exception:
+                return str(ts)[:10]
 
         _TYPE_KEY = {
             "placement_reading":   "dash_assess_type_placement",

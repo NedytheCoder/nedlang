@@ -10,6 +10,7 @@ import AssessmentLoader from "../../components/test_components/AssessmentLoader"
 import ProgressTracker from "../../components/test_components/ProgressTracker"
 import WritingTaskCard from "../../components/test_components/WritingTaskCard"
 import { WritingQuestion, WritingResponse } from "../../components/test_components/types"
+import { getSession, updateSkillQuestions, updateSkillResponses, completeSkill } from "../../lib/testSession"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -72,7 +73,15 @@ export default function WritingPage() {
       .then((data: WritingQuestion[]) => {
         if (!Array.isArray(data) || data.length === 0) { setPageState("error"); return }
         questionsRef.current = data
-        console.log("Writing questions:", data)
+        updateSkillQuestions("writing", data)
+        const session = getSession()
+        const saved = session?.writing
+        if (saved && !saved.complete && (saved.responses as WritingResponse[]).length > 0) {
+          const restoredResponses = saved.responses as WritingResponse[]
+          setResponses(restoredResponses)
+          responsesRef.current = restoredResponses
+          setCurrentIndex(restoredResponses.length)
+        }
         setLoadProgress(100)
         setTimeout(() => {
           setQuestions(data)
@@ -93,11 +102,10 @@ export default function WritingPage() {
     setResponses(updatedResponses)
     responsesRef.current = updatedResponses
 
+    updateSkillResponses("writing", updatedResponses)
     const isFinal = currentIndex === questions.length - 1
     if (isFinal) {
-      console.log("Writing responses:", updatedResponses)
-      sessionStorage.setItem("writing_questions", JSON.stringify(questionsRef.current))
-      sessionStorage.setItem("writing_responses", JSON.stringify(updatedResponses))
+      completeSkill("writing")
       router.push("/reception/speaking")
       return
     }

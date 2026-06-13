@@ -10,6 +10,7 @@ import AssessmentLoader from "../../components/test_components/AssessmentLoader"
 import QuestionCard from "../../components/test_components/QuestionCard"
 import ProgressTracker from "../../components/test_components/ProgressTracker"
 import { Question, AssessmentResponse } from "../../components/test_components/types"
+import { getSession, createSession, updateSkillQuestions, updateSkillResponses, completeSkill } from "../../lib/testSession"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -67,7 +68,18 @@ export default function ReadingPage() {
       .then((data: Question[]) => {
         if (!Array.isArray(data) || data.length === 0) { setPageState("error"); return }
         questionsRef.current = data
-        console.log("Reading questions:", data)
+        // Ensure a session exists and persist questions
+        let session = getSession()
+        if (!session) session = createSession()
+        updateSkillQuestions("reading", data)
+        // Restore any answers already saved (e.g. after a disconnect)
+        const saved = session.reading
+        if (saved && !saved.complete && (saved.responses as AssessmentResponse[]).length > 0) {
+          const restoredResponses = saved.responses as AssessmentResponse[]
+          setResponses(restoredResponses)
+          responsesRef.current = restoredResponses
+          setCurrentIndex(restoredResponses.length)
+        }
         setLoadProgress(100)
         setTimeout(() => {
           setQuestions(data)
@@ -90,11 +102,10 @@ export default function ReadingPage() {
     setResponses(updatedResponses)
     responsesRef.current = updatedResponses
 
+    updateSkillResponses("reading", updatedResponses)
     const isFinal = currentIndex === questions.length - 1
     if (isFinal) {
-      console.log("Reading responses:", updatedResponses)
-      sessionStorage.setItem("reading_questions", JSON.stringify(questionsRef.current))
-      sessionStorage.setItem("reading_responses", JSON.stringify(updatedResponses))
+      completeSkill("reading")
       router.push("/reception/listening")
       return
     }

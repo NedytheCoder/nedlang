@@ -10,6 +10,7 @@ import AssessmentLoader from "../../components/test_components/AssessmentLoader"
 import ListeningQuestionCard from "../../components/test_components/ListeningQuestionCard"
 import ProgressTracker from "../../components/test_components/ProgressTracker"
 import { ListeningQuestion, AssessmentResponse } from "../../components/test_components/types"
+import { getSession, updateSkillQuestions, updateSkillResponses, completeSkill } from "../../lib/testSession"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -72,7 +73,15 @@ export default function ListeningPage() {
       .then((data: ListeningQuestion[]) => {
         if (!Array.isArray(data) || data.length === 0) { setPageState("error"); return }
         questionsRef.current = data
-        console.log("Listening questions:", data)
+        updateSkillQuestions("listening", data)
+        const session = getSession()
+        const saved = session?.listening
+        if (saved && !saved.complete && (saved.responses as AssessmentResponse[]).length > 0) {
+          const restoredResponses = saved.responses as AssessmentResponse[]
+          setResponses(restoredResponses)
+          responsesRef.current = restoredResponses
+          setCurrentIndex(restoredResponses.length)
+        }
         setLoadProgress(100)
         setTimeout(() => {
           setQuestions(data)
@@ -95,11 +104,10 @@ export default function ListeningPage() {
     setResponses(updatedResponses)
     responsesRef.current = updatedResponses
 
+    updateSkillResponses("listening", updatedResponses)
     const isFinal = currentIndex === questions.length - 1
     if (isFinal) {
-      console.log("Listening responses:", updatedResponses)
-      sessionStorage.setItem("listening_questions", JSON.stringify(questionsRef.current))
-      sessionStorage.setItem("listening_responses", JSON.stringify(updatedResponses))
+      completeSkill("listening")
       router.push("/reception/writing")
       return
     }

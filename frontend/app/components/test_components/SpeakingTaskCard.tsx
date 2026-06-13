@@ -31,7 +31,7 @@ function formatTime(s: number): string {
 const variants = {
   enter: (dir: number) => ({ x: dir > 0 ? 60 : -60, opacity: 0 }),
   center: { x: 0, opacity: 1 },
-  exit:  (dir: number) => ({ x: dir > 0 ? -60 : 60, opacity: 0 }),
+  exit: (dir: number) => ({ x: dir > 0 ? -60 : 60, opacity: 0 }),
 }
 
 export default function SpeakingTaskCard({ question, onRecordingComplete, dir }: Props) {
@@ -72,6 +72,12 @@ export default function SpeakingTaskCard({ question, onRecordingComplete, dir }:
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      const track = stream.getAudioTracks()[0];
+
+      console.log("Label:", track.label);
+      console.log("Muted:", track.muted);
+      console.log("Enabled:", track.enabled);
+      console.log("Settings:", track.getSettings());
       const mimeType = [
         "audio/webm;codecs=opus",
         "audio/webm",
@@ -107,6 +113,9 @@ export default function SpeakingTaskCard({ question, onRecordingComplete, dir }:
         reader.readAsDataURL(blob)
 
         setPhase("review")
+        console.log("Chunks:", chunksRef.current.length);
+        console.log("Blob size:", blob.size);
+        console.log("Blob:", blob);
       }
 
       mediaRecorderRef.current = recorder

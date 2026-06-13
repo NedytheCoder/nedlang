@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion"
 import { GiEarthAfricaEurope } from "react-icons/gi"
 import { useTranslation } from "../../../i18n/LanguageProvider"
 import { getFramework } from "../../components/reception/frameworkUtils"
+import { getSession, clearSession } from "../../lib/testSession"
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -82,14 +83,18 @@ export default function GradingPage() {
     const framework  = getFramework(targetLang)
 
     // ── Read all session data ────────────────────────────────────────────────
-    const readingQ  = JSON.parse(sessionStorage.getItem("reading_questions")  ?? "[]")
-    const readingR  = JSON.parse(sessionStorage.getItem("reading_responses")  ?? "[]")
-    const listeningQ = JSON.parse(sessionStorage.getItem("listening_questions") ?? "[]")
-    const listeningR = JSON.parse(sessionStorage.getItem("listening_responses") ?? "[]")
-    const writingQ  = JSON.parse(sessionStorage.getItem("writing_questions")  ?? "[]")
-    const writingR  = JSON.parse(sessionStorage.getItem("writing_responses")  ?? "[]")
-    const speakingQ = JSON.parse(sessionStorage.getItem("speaking_questions") ?? "[]")
-    const speakingR = JSON.parse(sessionStorage.getItem("speaking_responses") ?? "[]")
+    // Reading, listening, writing come from localStorage (testSession)
+    // Speaking stays in sessionStorage because audio_b64 is too large for localStorage
+    const session    = getSession()
+    const sessionId  = session?.session_id ?? crypto.randomUUID()
+    const readingQ   = (session?.reading?.questions   ?? []) as object[]
+    const readingR   = (session?.reading?.responses   ?? []) as object[]
+    const listeningQ = (session?.listening?.questions ?? []) as object[]
+    const listeningR = (session?.listening?.responses ?? []) as object[]
+    const writingQ   = (session?.writing?.questions   ?? []) as object[]
+    const writingR   = (session?.writing?.responses   ?? []) as object[]
+    const speakingQ  = JSON.parse(sessionStorage.getItem("speaking_questions") ?? "[]")
+    const speakingR  = JSON.parse(sessionStorage.getItem("speaking_responses") ?? "[]")
 
     // ── Fire all 4 grading calls in parallel ─────────────────────────────────
     const grade = async (
@@ -159,24 +164,23 @@ export default function GradingPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id:   userId,
-          reading:   readingResult,
-          listening: listeningResult,
-          writing:   writingResult,
-          speaking:  speakingResult,
+          user_id:    userId,
+          session_id: sessionId,
+          reading:    readingResult,
+          listening:  listeningResult,
+          writing:    writingResult,
+          speaking:   speakingResult,
         }),
       })
       if (saveRes.ok) {
         const saved = await saveRes.json()
-        assessmentResults.current_level  = saved.current_level
-        assessmentResults.assessment_ids = saved.assessment_ids
+        clearSession()
+        router.push(`/reception/results?session_id=${sessionId}&level=${saved.current_level}`)
+        return
       }
     } catch {
-      // Save failed — results still available in sessionStorage
+      // Save failed — fall back to dashboard
     }
-
-    sessionStorage.setItem("assessment_results", JSON.stringify(assessmentResults))
-    console.log("Assessment results:", assessmentResults)
 
     router.push("/dashboard")
   }
